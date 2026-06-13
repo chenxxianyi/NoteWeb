@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoteWeb · 仪表盘</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-page: #F5F0EB;
+      --bg-card: #FAF8F5;
+      --bg-sidebar: #F0EAE3;
+      --bg-sidebar-hover: #E8E0D6;
+      --text-primary: #3D2E24;
+      --text-secondary: #8B7A6B;
+      --text-muted: #B8A99A;
+      --text-on-accent: #FFFFFF;
+      --accent: #C67A4E;
+      --accent-hover: #B06A40;
+      --accent-light: #F0E6DC;
+      --accent-ghost: rgba(198,122,78,0.12);
+      --border-color: #E4D9CE;
+      --shadow: 0 1px 3px rgba(61,46,36,0.06);
+      --shadow-md: 0 4px 12px rgba(61,46,36,0.08);
+      --font-display: 'EB Garamond', 'Noto Serif SC', serif;
+      --font-body: 'Noto Serif SC', 'Inter', serif;
+      --font-ui: 'Inter', 'Noto Sans SC', sans-serif;
+      --radius: 10px;
+      --radius-lg: 14px;
+      --sidebar-w: 220px;
+      --sidebar-collapsed-w: 0px;
+    }
+
+    body.theme-digital {
+      --bg-page: #FAFAFA;
+      --bg-card: #FFFFFF;
+      --bg-sidebar: #FFFFFF;
+      --bg-sidebar-hover: #F1F5F9;
+      --text-primary: #1E293B;
+      --text-secondary: #64748B;
+      --text-muted: #94A3B8;
+      --text-on-accent: #FFFFFF;
+      --accent: #2563EB;
+      --accent-hover: #1D4ED8;
+      --accent-light: #EFF6FF;
+      --accent-ghost: rgba(37,99,235,0.1);
+      --border-color: #E2E8F0;
+      --shadow: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07);
+      --font-display: 'Inter', 'Noto Sans SC', sans-serif;
+      --font-body: 'Inter', 'Noto Sans SC', sans-serif;
+      --font-ui: 'Inter', 'Noto Sans SC', sans-serif;
+      --radius: 8px;
+      --radius-lg: 12px;
+    }
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      transition: background 0.4s, color 0.4s;
+    }
+
+    /* ===== Sidebar ===== */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      position: fixed; top: 0; left: 0; bottom: 0;
+      z-index: 20;
+      transition: width 0.3s, background 0.4s, border-color 0.4s;
+      overflow: hidden;
+    }
+    body.sidebar-collapsed .sidebar { width: var(--sidebar-collapsed-w); border-right: none; }
+
+    .sidebar__brand {
+      padding: 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .sidebar__brand h1 {
+      font-family: var(--font-display);
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .sidebar__brand span {
+      font-family: var(--font-ui);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .sidebar__nav {
+      flex: 1;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .sidebar__item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      border-radius: var(--radius);
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-family: var(--font-ui);
+      font-size: 0.85rem;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .sidebar__item:hover { background: var(--bg-sidebar-hover); color: var(--text-primary); }
+    .sidebar__item.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+    .sidebar__item svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .sidebar__item .badge {
+      margin-left: auto;
+      background: var(--accent-ghost);
+      padding: 0.05rem 0.4rem;
+      border-radius: 10px;
+      font-size: 0.7rem;
+    }
+
+    .sidebar__user {
+      padding: 0.75rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .sidebar__user-av {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center; justify-content: center;
+      color: var(--text-on-accent);
+      font-family: var(--font-ui);
+      font-size: 0.75rem;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .sidebar__user-name { font-size: 0.8rem; font-weight: 500; white-space: nowrap; }
+    .sidebar__user-email { font-size: 0.65rem; color: var(--text-muted); white-space: nowrap; }
+
+    /* ===== Sidebar Toggle Button ===== */
+    .sidebar-toggle {
+      position: fixed;
+      top: 0.8rem;
+      left: 0.8rem;
+      z-index: 30;
+      width: 36px; height: 36px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      display: none;
+      align-items: center; justify-content: center;
+      cursor: pointer;
+      color: var(--text-secondary);
+    }
+    .sidebar-toggle svg { width: 18px; height: 18px; }
+
+    @media (max-width: 768px) {
+      .sidebar-toggle { display: flex; }
+      body.sidebar-collapsed .sidebar { width: var(--sidebar-w); }
+      body:not(.sidebar-collapsed) .sidebar { width: var(--sidebar-w); }
+    }
+
+    /* ===== Main ===== */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 1.5rem 2rem;
+      max-width: 1200px;
+      transition: margin-left 0.3s;
+    }
+    body.sidebar-collapsed .main { margin-left: 0; }
+
+    /* ===== Topbar ===== */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+    .topbar__left h1 {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 600;
+      transition: font-family 0.3s;
+    }
+    .topbar__left p {
+      font-family: var(--font-ui);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }
+    .topbar__right {
+      display: flex;
+      gap: 0.6rem;
+      align-items: center;
+    }
+    .topbar__search {
+      position: relative;
+    }
+    .topbar__search input {
+      font-family: var(--font-ui);
+      font-size: 0.85rem;
+      padding: 0.5rem 0.8rem 0.5rem 2.2rem;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      background: var(--bg-card);
+      color: var(--text-primary);
+      outline: none;
+      width: 200px;
+      transition: all 0.3s;
+    }
+    .topbar__search input:focus { border-color: var(--accent); }
+    .topbar__search svg {
+      position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%);
+      width: 16px; height: 16px; color: var(--text-muted);
+    }
+
+    /* Theme Toggle */
+    .theme-btn {
+      width: 36px; height: 36px;
+      border: 1px solid var(--border-color);
+      border-radius: 50%;
+      background: var(--bg-card);
+      display: flex;
+      align-items: center; justify-content: center;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.3s;
+    }
+    .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .theme-btn svg { width: 16px; height: 16px; }
+
+    /* ===== Quick Upload ===== */
+    .quick-upload {
+      border: 2px dashed var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1.2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 1.5rem;
+      background: var(--bg-card);
+    }
+    .quick-upload:hover {
+      border-color: var(--accent);
+      background: var(--accent-light);
+    }
+    .quick-upload svg { width: 28px; height: 28px; color: var(--text-muted); }
+    .quick-upload p { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+    /* ===== Grid ===== */
+    .dash-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+    }
+
+    /* ===== Panel ===== */
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transition: all 0.4s;
+    }
+    .panel__header {
+      display: flex;
+      align-items: center; justify-content: space-between;
+      padding: 0.9rem 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .panel__header h3 {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 500;
+    }
+    .panel__header a {
+      font-family: var(--font-ui);
+      font-size: 0.8rem;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* ===== Item styles ===== */
+    .reading-item, .anno-item, .upload-item {
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .reading-item:last-child, .anno-item:last-child, .upload-item:last-child { border-bottom: none; }
+    .reading-item:hover, .anno-item:hover, .upload-item:hover { background: var(--accent-light); }
+
+    .reading-item { display: flex; align-items: center; gap: 0.8rem; }
+    .reading-item__icon {
+      width: 36px; height: 36px; border-radius: 6px;
+      background: var(--accent-light); display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; color: var(--accent);
+    }
+    .reading-item__icon svg { width: 18px; height: 18px; }
+    .reading-item__info { flex: 1; min-width: 0; }
+    .reading-item__title { font-size: 0.9rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .reading-item__meta { font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-muted); margin-top: 0.1rem; }
+    .reading-item__progress { font-family: var(--font-ui); font-size: 0.7rem; color: var(--accent); flex-shrink: 0; }
+
+    .anno-item__text { font-size: 0.85rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .anno-item__meta { font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; gap: 0.4rem; align-items: center; }
+    .hl-tag { padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; }
+    .hl-yellow { background: #FDE68A; color: #92400E; }
+    .hl-blue { background: #DBEAFE; color: #1E40AF; }
+    .hl-green { background: #A7F3D0; color: #065F46; }
+
+    .upload-item { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; }
+    .upload-item__type { padding: 0.1rem 0.35rem; border-radius: 4px; font-family: var(--font-ui); font-size: 0.65rem; font-weight: 600; }
+    .ut-pdf { background: #FEE2E2; color: #B91C1C; }
+    .ut-md { background: #DBEAFE; color: #1E40AF; }
+    .ut-docx { background: #D1FAE5; color: #065F46; }
+    .upload-item__name { flex: 1; }
+    .upload-item__date { font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-muted); }
+
+    /* ===== Stats ===== */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+    .stat-card {
+      text-align: center;
+      padding: 1rem 0.5rem;
+    }
+    .stat-card__value {
+      font-family: var(--font-display);
+      font-size: 1.6rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .stat-card__label {
+      font-family: var(--font-ui);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.15rem;
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 900px) {
+      .dash-grid { grid-template-columns: 1fr; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .main { padding: 1rem; }
+      .topbar { flex-direction: column; align-items: flex-start; gap: 0.6rem; }
+      .topbar__search input { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Mobile sidebar toggle -->
+  <button class="sidebar-toggle" id="sidebarToggle">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+
+  <!-- Sidebar -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar__brand">
+      <h1>NoteWeb</h1>
+      <span>知识型阅读工作台</span>
+    </div>
+    <div class="sidebar__nav">
+      <a href="#" class="sidebar__item active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        仪表盘
+      </a>
+      <a href="#" class="sidebar__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+        文件库
+        <span class="badge">12</span>
+      </a>
+      <a href="#" class="sidebar__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        阅读器
+      </a>
+      <a href="#" class="sidebar__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        笔记
+        <span class="badge">8</span>
+      </a>
+      <a href="#" class="sidebar__item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06"/></svg>
+        设置
+      </a>
+    </div>
+    <div class="sidebar__user">
+      <div class="sidebar__user-av">M</div>
+      <div>
+        <div class="sidebar__user-name">小明</div>
+        <div class="sidebar__user-email">xiaoming@email.com</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="topbar__left">
+        <h1>下午好，小明</h1>
+        <p>你有 3 篇文档等待阅读 · 今日阅读 23 分钟</p>
+      </div>
+      <div class="topbar__right">
+        <div class="topbar__search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" placeholder="搜索文档..." />
+        </div>
+        <button class="theme-btn" id="themeToggle" title="切换主题">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick Upload -->
+    <div class="quick-upload">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <p>拖拽文件到此处上传，或点击浏览</p>
+    </div>
+
+    <!-- Dashboard Grid -->
+        <div class="dash-grid">
+      <!-- Stats -->
+      <div class="panel">
+        <div class="panel__header">
+          <h3>阅读统计</h3>
+        </div>
+        <div class="stats-row" style="padding:1rem 0.5rem;">
+          <div class="stat-card">
+            <div class="stat-card__value">12</div>
+            <div class="stat-card__label">文档总数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value">47</div>
+            <div class="stat-card__label">批注总数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value">8</div>
+            <div class="stat-card__label">笔记总数</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value">6.5h</div>
+            <div class="stat-card__label">本周阅读</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Uploads -->
+      <div class="panel">
+        <div class="panel__header">
+          <h3>最近上传</h3>
+          <a href="#">查看全部 →</a>
+        </div>
+        <div class="upload-item">
+          <span class="upload-item__type ut-pdf">PDF</span>
+          <span class="upload-item__name">Designing Data-Intensive Applications</span>
+          <span class="upload-item__date">今天 14:30</span>
+        </div>
+        <div class="upload-item">
+          <span class="upload-item__type ut-md">MD</span>
+          <span class="upload-item__name">系统设计面试笔记.md</span>
+          <span class="upload-item__date">昨天 20:15</span>
+        </div>
+        <div class="upload-item">
+          <span class="upload-item__type ut-docx">DOCX</span>
+          <span class="upload-item__name">2025年度技术规划.docx</span>
+          <span class="upload-item__date">3 天前</span>
+        </div>
+      </div>
+
+      <!-- Recent Reading -->
+      <div class="panel">
+        <div class="panel__header">
+          <h3>最近阅读</h3>
+          <a href="#">查看全部 →</a>
+        </div>
+        <div class="reading-item">
+          <div class="reading-item__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          </div>
+          <div class="reading-item__info">
+            <div class="reading-item__title">深度学习入门：基于Python的理论与实现</div>
+            <div class="reading-item__meta">PDF · 上次阅读第3章</div>
+          </div>
+          <div class="reading-item__progress">32%</div>
+        </div>
+        <div class="reading-item">
+          <div class="reading-item__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="reading-item__info">
+            <div class="reading-item__title">Vue.js 设计与实现</div>
+            <div class="reading-item__meta">Markdown · 上次阅读第12章</div>
+          </div>
+          <div class="reading-item__progress">67%</div>
+        </div>
+        <div class="reading-item">
+          <div class="reading-item__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="reading-item__info">
+            <div class="reading-item__title">Rust 程序设计语言 中文版</div>
+            <div class="reading-item__meta">PDF · 上次阅读第7章</div>
+          </div>
+          <div class="reading-item__progress">45%</div>
+        </div>
+      </div>
+
+      <!-- Recent Annotations -->
+      <div class="panel">
+        <div class="panel__header">
+          <h3>最新批注</h3>
+          <a href="#">查看全部 →</a>
+        </div>
+        <div class="anno-item">
+          <div class="anno-item__text">"注意力机制的本质是让模型学会关注输入序列中重要的部分..."</div>
+          <div class="anno-item__meta"><span class="hl-tag hl-yellow">高亮</span>深度学习入门 · 2 小时前</div>
+        </div>
+        <div class="anno-item">
+          <div class="anno-item__text">"虚拟 DOM 的性能优势不在于比真实 DOM 快..."</div>
+          <div class="anno-item__meta"><span class="hl-tag hl-blue">笔记</span>Vue.js 设计与实现 · 昨天</div>
+        </div>
+        <div class="anno-item">
+          <div class="anno-item__text">"Rust 的所有权系统在编译时就能保证内存安全..."</div>
+          <div class="anno-item__meta"><span class="hl-tag hl-green">批注</span>Rust 程序设计 · 3 天前</div>
+        </div>
+      </div>
+    </div>
+
+      
+    </div>
+  </div>
+
+  <script>
+    // Theme toggle
+    const themeBtn = document.getElementById('themeToggle');
+    themeBtn.addEventListener('click', () => {
+      document.body.classList.toggle('theme-digital');
+    });
+
+    // Sidebar toggle on mobile
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    sidebarToggle.addEventListener('click', () => {
+      document.body.classList.toggle('sidebar-collapsed');
+    });
+
+    // Auto-collapse sidebar on small screens
+    if (window.innerWidth <= 768) {
+      document.body.classList.add('sidebar-collapsed');
+    }
+  </script>
+</body>
+</html>

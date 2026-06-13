@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoteWeb · 登录</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* ===== Design System: 数字清爽 · 工具派 ===== */
+    :root {
+      --bg-page: #F8FAFC;
+      --bg-card: #FFFFFF;
+      --bg-brand: #0F172A;
+      --text-primary: #1E293B;
+      --text-secondary: #64748B;
+      --text-muted: #94A3B8;
+      --accent: #2563EB;
+      --accent-hover: #1D4ED8;
+      --accent-light: #EFF6FF;
+      --border-color: #E2E8F0;
+      --border-focus: #2563EB;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+      --font-sans: 'Inter', 'Noto Sans SC', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ===== Left Brand Panel ===== */
+    .brand-panel {
+      flex: 0 0 480px;
+      background: var(--bg-brand);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 3rem;
+    }
+
+    /* Abstract pattern */
+    .brand-pattern {
+      position: absolute;
+      inset: 0;
+      opacity: 0.08;
+      background:
+        radial-gradient(circle at 20% 30%, #3B82F6 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, #6366F1 0%, transparent 50%),
+        radial-gradient(circle at 50% 50%, #0EA5E9 0%, transparent 60%);
+    }
+
+    /* Grid lines */
+    .brand-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+
+    .brand-content {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      color: #fff;
+    }
+
+    .brand-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 2rem;
+      background: linear-gradient(135deg, #3B82F6, #6366F1);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 32px rgba(59,130,246,0.3);
+    }
+    .brand-icon svg {
+      width: 40px;
+      height: 40px;
+      color: #fff;
+    }
+
+    .brand-title {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+    .brand-desc {
+      font-size: 0.95rem;
+      color: rgba(255,255,255,0.6);
+      line-height: 1.7;
+      max-width: 320px;
+      margin: 0 auto;
+    }
+
+    /* Feature list */
+    .brand-features {
+      margin-top: 2.5rem;
+      text-align: left;
+      max-width: 300px;
+    }
+    .brand-feature {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0;
+      color: rgba(255,255,255,0.7);
+      font-size: 0.85rem;
+    }
+    .brand-feature svg {
+      width: 18px;
+      height: 18px;
+      color: #3B82F6;
+      flex-shrink: 0;
+    }
+
+    /* ===== Right Form Panel ===== */
+    .form-panel {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .form-container {
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .form-header {
+      margin-bottom: 2rem;
+    }
+    .form-header h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .form-header p {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-top: 0.4rem;
+    }
+
+    /* ===== Form ===== */
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 0.35rem;
+    }
+    .form-input {
+      width: 100%;
+      padding: 0.7rem 0.85rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background: var(--bg-card);
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .form-input::placeholder {
+      color: var(--text-muted);
+    }
+    .form-input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+
+    /* ===== Submit ===== */
+    .btn-submit {
+      display: block;
+      width: 100%;
+      padding: 0.75rem 0;
+      margin-top: 0.5rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-md);
+      font-family: var(--font-sans);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-submit:hover {
+      background: var(--accent-hover);
+    }
+    .btn-submit:active {
+      transform: scale(0.98);
+    }
+
+    /* ===== Links ===== */
+    .form-footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+    .form-footer a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .form-footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* ===== Divider ===== */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin: 1.8rem 0 1.2rem;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border-color);
+    }
+
+    /* ===== Social ===== */
+    .social-row {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .social-btn {
+      flex: 1;
+      height: 44px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background: var(--bg-card);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+    .social-btn:hover {
+      border-color: var(--accent);
+      background: var(--accent-light);
+    }
+    .social-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* ===== Register extra fields ===== */
+    .register-only {
+      display: none;
+    }
+    body.show-register .register-only {
+      display: block;
+    }
+
+    /* ===== Toggle mode ===== */
+    .tab-bar {
+      display: flex;
+      background: var(--bg-page);
+      border-radius: var(--radius-md);
+      padding: 0.2rem;
+      margin-bottom: 2rem;
+      border: 1px solid var(--border-color);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 0.5rem 0;
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tab-btn.active {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 860px) {
+      .brand-panel { flex: 0 0 300px; padding: 2rem; }
+      .brand-icon { width: 60px; height: 60px; }
+      .brand-icon svg { width: 30px; height: 30px; }
+      .brand-title { font-size: 1.5rem; }
+      .brand-features { display: none; }
+    }
+
+    @media (max-width: 640px) {
+      body { flex-direction: column; }
+      .brand-panel {
+        flex: none;
+        padding: 2rem 1.5rem;
+        min-height: 200px;
+      }
+      .brand-icon { width: 48px; height: 48px; margin-bottom: 1rem; }
+      .brand-icon svg { width: 24px; height: 24px; }
+      .brand-title { font-size: 1.25rem; }
+      .brand-desc { font-size: 0.8rem; max-width: 260px; }
+      .brand-features { display: none; }
+      .form-panel { padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 左侧品牌区 -->
+  <div class="brand-panel">
+    <div class="brand-pattern"></div>
+    <div class="brand-grid"></div>
+    <div class="brand-content">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          <path d="M12 6v7"/>
+          <path d="M9 9l3-3 3 3"/>
+        </svg>
+      </div>
+      <h1 class="brand-title">NoteWeb</h1>
+      <p class="brand-desc">知识型阅读工作台，让深度阅读与知识管理融为一体。</p>
+      <div class="brand-features">
+        <div class="brand-feature">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          多格式文档阅读
+        </div>
+        <div class="brand-feature">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          划线批注与摘录
+        </div>
+        <div class="brand-feature">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          AI 阅读助手
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧表单区 -->
+  <div class="form-panel">
+    <div class="form-container">
+      <!-- Tab 切换 -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="login">登录</button>
+        <button class="tab-btn" data-tab="register">注册</button>
+      </div>
+
+      <!-- 登录表单 -->
+      <form id="authForm" onsubmit="return false;">
+        <div class="form-header">
+          <h1 id="formTitle">欢迎回来</h1>
+          <p id="formSubtitle">登录你的 NoteWeb 账号</p>
+        </div>
+
+        <!-- 注册额外字段 -->
+        <div class="form-group register-only">
+          <label for="username">用户名</label>
+          <input type="text" id="username" class="form-input" placeholder="给自己取个名字" autocomplete="username" />
+        </div>
+
+        <div class="form-group">
+          <label for="email">邮箱 / 用户名</label>
+          <input type="text" id="email" class="form-input" placeholder="your@email.com" autocomplete="email" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">密码</label>
+          <input type="password" id="password" class="form-input" placeholder="请输入密码" autocomplete="current-password" />
+        </div>
+
+        <div class="form-group register-only">
+          <label for="confirm-password">确认密码</label>
+          <input type="password" id="confirm-password" class="form-input" placeholder="再输一次密码" autocomplete="new-password" />
+        </div>
+
+        <button type="submit" class="btn-submit" id="submitBtn">登 录</button>
+
+        <div class="form-footer">
+          <span id="toggleText">没有账号？</span>
+          <a href="#" id="toggleLink">去注册</a>
+        </div>
+      </form>
+
+      <div class="divider">或</div>
+      <div class="social-row">
+        <button class="social-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+          </svg>
+          Google
+        </button>
+        <button class="social-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C4.79 17.2 4.43 12.2 6.98 9.68c1.08-1.1 2.49-1.7 3.91-1.73 1.22.03 2.37.46 3.22 1.2.96-.49 2.01-.74 3.09-.71 1.84.04 3.24.72 4.25 2.04-1.66 1.02-2.49 2.45-2.75 4.26-.27 2.01.82 3.74 2.5 4.54-.47 1.23-1.07 2.44-1.95 3.5l-.2-.02z"/>
+          </svg>
+          Apple
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const submitBtn = document.getElementById('submitBtn');
+    const toggleLink = document.getElementById('toggleLink');
+    const toggleText = document.getElementById('toggleText');
+    const formTitle = document.getElementById('formTitle');
+    const formSubtitle = document.getElementById('formSubtitle');
+    let isLogin = true;
+
+    function setMode(login) {
+      isLogin = login;
+      document.body.classList.toggle('show-register', !login);
+      if (login) {
+        submitBtn.textContent = '登 录';
+        formTitle.textContent = '欢迎回来';
+        formSubtitle.textContent = '登录你的 NoteWeb 账号';
+        toggleText.textContent = '没有账号？';
+        toggleLink.textContent = '去注册';
+      } else {
+        submitBtn.textContent = '注 册';
+        formTitle.textContent = '创建账号';
+        formSubtitle.textContent = '开始你的阅读之旅';
+        toggleText.textContent = '已有账号？';
+        toggleLink.textContent = '去登录';
+      }
+    }
+
+    tabBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        setMode(btn.dataset.tab === 'login');
+      });
+    });
+
+    toggleLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const target = isLogin ? 'register' : 'login';
+      document.querySelector(`[data-tab="${target}"]`).click();
+    });
+  </script>
+</body>
+</html>

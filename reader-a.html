@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoteWeb · 阅读器 — 纸书质感</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Noto+Serif+SC:wght@400;500;600;700&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-page: #F5F0EB;
+      --bg-card: #FAF8F5;
+      --text-primary: #3D2E24;
+      --text-secondary: #8B7A6B;
+      --text-muted: #B8A99A;
+      --accent: #C67A4E;
+      --accent-hover: #B06A40;
+      --accent-light: #F0E6DC;
+      --border-color: #E4D9CE;
+      --font-display: 'EB Garamond', 'Noto Serif SC', serif;
+      --font-body: 'Noto Serif SC', serif;
+      --font-ui: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --radius: 8px;
+      --panel-width: 300px;
+      --topbar-height: 48px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      background-image: repeating-linear-gradient(0deg,transparent,transparent 1px,rgba(0,0,0,0.005) 1px,rgba(0,0,0,0.005) 2px);
+      background-size: 100% 2px;
+    }
+
+    /* ===== Top Bar (floating) ===== */
+    .reader-topbar {
+      position: fixed;
+      top: 0.75rem; left: 50%;
+      transform: translateX(-50%);
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.35rem 0.6rem;
+      background: rgba(250,248,245,0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      box-shadow: 0 2px 12px rgba(61,46,36,0.08);
+      transition: opacity 0.3s, transform 0.3s;
+      font-family: var(--font-ui);
+    }
+    .reader-topbar.hidden {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-10px);
+      pointer-events: none;
+    }
+    .tb-btn {
+      width: 34px; height: 34px;
+      border: none;
+      border-radius: 50%;
+      background: transparent;
+      display: flex;
+      align-items: center; justify-content: center;
+      cursor: pointer;
+      color: var(--text-secondary);
+      transition: all 0.12s;
+    }
+    .tb-btn:hover { background: var(--accent-light); color: var(--accent); }
+    .tb-btn svg { width: 18px; height: 18px; }
+    .tb-divider { width: 1px; height: 20px; background: var(--border-color); margin: 0 0.2rem; }
+    .tb-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      padding: 0 0.4rem;
+    }
+
+    /* ===== Left Panel (TOC) ===== */
+    .panel-left {
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      width: var(--panel-width);
+      background: var(--bg-card);
+      border-right: 1px solid var(--border-color);
+      z-index: 20;
+      transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-left.open { transform: translateX(0); }
+
+    /* ===== Right Panel (Annotations/AI) ===== */
+    .panel-right {
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      width: var(--panel-width);
+      background: var(--bg-card);
+      border-left: 1px solid var(--border-color);
+      z-index: 20;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-right.open { transform: translateX(0); }
+
+    .panel__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+      font-family: var(--font-ui);
+      flex-shrink: 0;
+    }
+    .panel__header h3 { font-size: 0.9rem; font-weight: 500; color: var(--text-primary); }
+    .panel__header button {
+      background: none; border: none;
+      cursor: pointer; color: var(--text-muted);
+      font-size: 1.2rem; padding: 0.2rem;
+    }
+    .panel__header button:hover { color: var(--text-primary); }
+    .panel__body { flex: 1; overflow-y: auto; padding: 1rem 1.25rem; }
+
+    .toc-item {
+      padding: 0.5rem 0;
+      cursor: pointer;
+      color: var(--text-secondary);
+      font-family: var(--font-ui);
+      font-size: 0.85rem;
+      border-bottom: 1px solid var(--border-color);
+      transition: color 0.1s;
+    }
+    .toc-item:hover { color: var(--accent); }
+    .toc-item.level-1 { font-weight: 500; }
+    .toc-item.level-2 { padding-left: 1.2rem; font-size: 0.8rem; }
+    .toc-item.level-3 { padding-left: 2.4rem; font-size: 0.75rem; }
+    .toc-item.active { color: var(--accent); font-weight: 600; }
+
+    /* Annotation in side panel */
+    .anno-card {
+      padding: 0.8rem 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .anno-card:last-child { border-bottom: none; }
+    .anno-card__text {
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--text-primary);
+    }
+    .anno-card__meta {
+      font-family: var(--font-ui);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.3rem;
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+    }
+    .anno-highlight {
+      display: inline-block;
+      background: #FDE68A;
+      padding: 0 0.3rem;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      color: #92400E;
+    }
+
+    /* AI panel */
+    .ai-message {
+      padding: 0.8rem;
+      background: var(--accent-light);
+      border-radius: 8px;
+      margin-bottom: 0.8rem;
+      font-size: 0.85rem;
+      line-height: 1.7;
+    }
+    .ai-message__label {
+      font-family: var(--font-ui);
+      font-size: 0.7rem;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+    }
+    .ai-input {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .ai-input input {
+      flex: 1;
+      padding: 0.5rem 0.8rem;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      background: var(--bg-page);
+      font-family: var(--font-ui);
+      font-size: 0.8rem;
+      color: var(--text-primary);
+      outline: none;
+    }
+    .ai-input input:focus { border-color: var(--accent); }
+
+    /* ===== Reading Area ===== */
+    .reader-content {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 4.5rem 3rem 6rem;
+      min-height: 100vh;
+    }
+
+    /* 内层阅读区：保持最佳阅读宽度 */
+    .reader-inner {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    /* 书本页面装饰（右侧） */
+    .page-edge {
+      position: fixed;
+      top: 0; right: 0; bottom: 0;
+      width: clamp(60px, 8vw, 140px);
+      background: linear-gradient(to right, transparent, rgba(0,0,0,0.015) 40%, rgba(0,0,0,0.025));
+      pointer-events: none;
+      z-index: 1;
+    }
+    body.theme-digital .page-edge { display: none; }
+
+    .doc-title {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 600;
+      line-height: 1.3;
+      margin-bottom: 0.5rem;
+      color: var(--text-primary);
+    }
+    .doc-meta {
+      font-family: var(--font-ui);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .doc-body {
+      font-size: 1rem;
+      line-height: 1.9;
+      color: var(--text-primary);
+    }
+    .doc-body h2 {
+      font-family: var(--font-display);
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin: 2rem 0 0.8rem;
+    }
+    .doc-body h3 {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      font-weight: 500;
+      margin: 1.5rem 0 0.5rem;
+    }
+    .doc-body p { margin-bottom: 1rem; }
+    .doc-body code {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      background: var(--accent-light);
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+    }
+    .doc-body pre {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.6;
+      margin: 1rem 0;
+    }
+    .doc-body blockquote {
+      border-left: 3px solid var(--accent);
+      padding: 0.5rem 1rem;
+      margin: 1rem 0;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+    .doc-body .highlight-marker {
+      background: #FDE68A;
+      padding: 0.1rem 0.2rem;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+    .doc-body .highlight-marker:hover { background: #FCD34D; }
+
+    /* Selection toolbar */
+    .sel-toolbar {
+      position: fixed;
+      z-index: 25;
+      display: none;
+      background: var(--text-primary);
+      color: #fff;
+      border-radius: 8px;
+      padding: 0.3rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      font-family: var(--font-ui);
+    }
+    .sel-toolbar.visible { display: flex; gap: 0.2rem; }
+    .sel-btn {
+      padding: 0.3rem 0.6rem;
+      border: none;
+      background: transparent;
+      color: rgba(255,255,255,0.8);
+      font-family: var(--font-ui);
+      font-size: 0.75rem;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: background 0.1s;
+    }
+    .sel-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+    /* ===== Overlay ===== */
+    .panel-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.15);
+      z-index: 15;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .panel-overlay.show { opacity: 1; pointer-events: auto; }
+
+    /* ===== Responsive ===== */
+
+    /* 平板端 */
+    @media (max-width: 1024px) {
+      .reader-content { max-width: 100%; padding: 4.5rem 2rem 5rem; }
+      .reader-inner { max-width: 100%; }
+      .reader-topbar { padding: 0.3rem 0.4rem; gap: 0.15rem; }
+      .tb-btn { width: 30px; height: 30px; }
+      .tb-btn svg { width: 16px; height: 16px; }
+      .tb-label { font-size: 0.65rem; }
+    }
+
+    /* 手机端 */
+    @media (max-width: 600px) {
+      .page-edge { display: none; }
+      .reader-content { padding: 3.5rem 1rem 4rem; }
+      .reader-inner { max-width: 100%; }
+      .doc-title { font-size: 1.3rem; }
+      .doc-meta { font-size: 0.7rem; margin-bottom: 1.2rem; }
+      .doc-body { font-size: 0.9rem; line-height: 1.75; }
+      .doc-body h2 { font-size: 1.15rem; margin: 1.2rem 0 0.5rem; }
+      .doc-body h3 { font-size: 1rem; margin: 1rem 0 0.4rem; }
+      .doc-body pre { font-size: 0.75rem; padding: 0.7rem; }
+      :root { --panel-width: 100%; }
+
+      /* 顶栏紧凑 */
+      .reader-topbar {
+        top: 0.5rem; left: 0.5rem; right: 0.5rem;
+        transform: none;
+        border-radius: var(--radius);
+        padding: 0.25rem 0.3rem;
+        gap: 0.1rem;
+        justify-content: space-between;
+      }
+      .tb-btn { width: 28px; height: 28px; }
+      .tb-btn svg { width: 15px; height: 15px; }
+      .tb-divider { display: none; }
+      .tb-label { font-size: 0.6rem; }
+
+      /* 选中工具栏紧凑 */
+      .sel-toolbar { padding: 0.2rem; }
+      .sel-btn { font-size: 0.65rem; padding: 0.2rem 0.4rem; }
+
+      /* 左侧面板 */
+      .panel__header { padding: 0.7rem 1rem; }
+      .panel__body { padding: 0.6rem 1rem; }
+      .toc-item { font-size: 0.8rem; padding: 0.4rem 0; }
+
+      /* 右侧批注/AI面板 */
+      .anno-card { padding: 0.6rem 0; }
+      .anno-card__text { font-size: 0.8rem; }
+      .ai-message { padding: 0.6rem; font-size: 0.8rem; }
+      .ai-input input { font-size: 0.75rem; padding: 0.4rem 0.7rem; }
+    }
+
+    @media (max-width: 380px) {
+      .reader-content { padding: 3rem 0.8rem 3rem; }
+      .doc-title { font-size: 1.1rem; }
+      .doc-body { font-size: 0.85rem; }
+      .doc-body pre { font-size: 0.7rem; padding: 0.5rem; }
+      .reader-topbar { top: 0.3rem; left: 0.3rem; right: 0.3rem; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Overlay -->
+  <div class="panel-overlay" id="overlay"></div>
+
+  <!-- Floating Top Bar -->
+  <div class="reader-topbar" id="topbar">
+    <button class="tb-btn" id="btnBack" title="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <div class="tb-divider"></div>
+    <button class="tb-btn" id="btnToc" title="目录">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    </button>
+    <button class="tb-btn" id="btnAnno" title="批注和AI">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <div class="tb-divider"></div>
+    <button class="tb-btn" title="搜索">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </button>
+    <button class="tb-btn" title="缩小">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    </button>
+    <span class="tb-label">100%</span>
+    <button class="tb-btn" title="放大">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    </button>
+    <div class="tb-divider"></div>
+    <button class="tb-btn" title="AI总结">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+    </button>
+  </div>
+
+  <!-- Left Panel: TOC -->
+  <div class="panel-left" id="panelLeft">
+    <div class="panel__header">
+      <h3>目录</h3>
+      <button id="closeLeft">✕</button>
+    </div>
+    <div class="panel__body">
+      <div class="toc-item level-1 active">引言</div>
+      <div class="toc-item level-1">第1章 深度学习概述</div>
+      <div class="toc-item level-2">1.1 什么是深度学习</div>
+      <div class="toc-item level-2">1.2 深度学习的历史</div>
+      <div class="toc-item level-3">1.2.1 神经网络的早期发展</div>
+      <div class="toc-item level-3">1.2.2 深度学习的崛起</div>
+      <div class="toc-item level-1">第2章 感知机</div>
+      <div class="toc-item level-2">2.1 感知机是什么</div>
+      <div class="toc-item level-2">2.2 简单逻辑电路</div>
+      <div class="toc-item level-1">第3章 神经网络</div>
+    </div>
+  </div>
+
+  <!-- Right Panel: Annotations + AI -->
+  <div class="panel-right" id="panelRight">
+    <div class="panel__header">
+      <h3 id="rightPanelTitle">批注与 AI</h3>
+      <button id="closeRight">✕</button>
+    </div>
+    <div class="panel__body">
+      <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+        <button class="tb-btn" style="width:auto;padding:0.3rem 1rem;border-radius:20px;background:var(--accent-light);color:var(--accent);font-family:var(--font-ui);font-size:0.8rem;font-weight:500;" id="tabAnno">批注 (3)</button>
+        <button class="tb-btn" style="width:auto;padding:0.3rem 1rem;border-radius:20px;font-family:var(--font-ui);font-size:0.8rem;color:var(--text-muted);" id="tabAi">AI 助手</button>
+      </div>
+
+      <!-- Annotations tab -->
+      <div id="annoContent">
+        <div class="anno-card">
+          <div class="anno-card__text">"深度学习是机器学习的一个分支，它试图使用包含复杂结构或由多重非线性变换构成的多个处理层对数据进行高层抽象。"</div>
+          <div class="anno-card__meta"><span class="anno-highlight">高亮</span>第2页 · 昨天</div>
+        </div>
+        <div class="anno-card">
+          <div class="anno-card__text">感知机的权重和偏置参数可以通过数据自动学习。</div>
+          <div class="anno-card__meta"><span class="anno-highlight">笔记</span>第12页 · 2天前</div>
+        </div>
+      </div>
+
+      <!-- AI tab (hidden by default) -->
+      <div id="aiContent" style="display:none;">
+        <div class="ai-message">
+          <div class="ai-message__label">AI 总结</div>
+          <p>本文介绍了深度学习的基本概念，包括感知机、神经网络和多层网络。核心思想是通过多层非线性变换来学习数据的层次化表示。</p>
+        </div>
+        <div class="ai-input">
+          <input type="text" placeholder="向 AI 提问关于本文的问题..." />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Selection Toolbar -->
+  <div class="sel-toolbar" id="selToolbar">
+    <button class="sel-btn">🖍 高亮</button>
+    <button class="sel-btn">📝 笔记</button>
+    <button class="sel-btn">💬 批注</button>
+    <button class="sel-btn">🤖 解释</button>
+  </div>
+
+  <!-- 右侧书本边缘装饰 -->
+  <div class="page-edge"></div>
+
+  <!-- Reading Content -->
+  <div class="reader-content">
+    <div class="reader-inner">
+    <h1 class="doc-title">深度学习入门：基于Python的理论与实现</h1>
+    <div class="doc-meta">
+      PDF · 斋藤康毅 著 · 已读至第3章 · 上次阅读 2 小时前
+    </div>
+
+    <div class="doc-body">
+      <h2>第3章 神经网络</h2>
+
+      <p>上一章我们学习了感知机。本章我们将介绍<strong>神经网络</strong>。具体来说，我们将从神经元的结构开始，逐步深入到前向传播、激活函数、输出层设计等内容。</p>
+
+      <h3>3.1 从感知机到神经网络</h3>
+
+      <p>神经网络和感知机本质上有很多共同点。感知机中，输入信号被乘以权重后求和，然后通过阶跃函数输出结果。而在神经网络中，我们把阶跃函数换成了其他函数——<strong>激活函数</strong>。</p>
+
+      <div class="highlight-marker">"激活函数是连接感知机和神经网络的关键桥梁。它将输入的线性组合转换为非线性输出，使网络能够表达复杂的模式。"</div>
+
+      <p>让我们来看一个简单的例子。假设有一个两层的神经网络，输入层有2个神经元，隐藏层有3个神经元，输出层有2个神经元。</p>
+
+      <pre><code>import numpy as np
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+def init_network():
+    network = {}
+    network['W1'] = np.array([[0.1, 0.3, 0.5], [0.2, 0.4, 0.6]])
+    network['b1'] = np.array([0.1, 0.2, 0.3])
+    network['W2'] = np.array([[0.1, 0.4], [0.2, 0.5], [0.3, 0.6]])
+    network['b2'] = np.array([0.1, 0.2])
+    network['W3'] = np.array([[0.1, 0.3], [0.2, 0.4]])
+    network['b3'] = np.array([0.1, 0.2])
+    return network</code></pre>
+
+      <h3>3.2 激活函数</h3>
+
+      <p>激活函数的选择对神经网络的性能有着重要影响。常用的激活函数包括：</p>
+
+      <blockquote>Sigmoid 函数：将输入映射到 (0, 1) 区间，适合二分类问题。但存在梯度消失问题。<br/>
+      ReLU 函数：max(0, x)，计算简单且能缓解梯度消失，是目前最常用的激活函数之一。<br/>
+      Tanh 函数：将输入映射到 (-1, 1) 区间，输出均值为0。</blockquote>
+
+      <p>接下来我们详细讨论每种激活函数的数学性质和应用场景...</p>
+
+      <h3>3.3 输出层设计</h3>
+
+      <p>神经网络可以用在分类问题和回归问题上。根据问题的性质改变输出层的激活函数：</p>
+
+      <p>回归问题使用<strong>恒等函数</strong>，分类问题使用<strong>Softmax 函数</strong>。Softmax 函数的输出可以解释为"概率"，因此分类问题中的最终输出可以看作是输入属于各个类别的概率。</p>
+
+      <div class="highlight-marker">"Softmax 函数的输出之和为1，因此可以解释为概率。这使我们能够将神经网络的输出视为"置信度"的度量。"</div>
+
+      <p>在推理阶段，我们通常只取 Softmax 输出中最大值的索引作为分类结果。而在训练阶段，Softmax 层的输出与交叉熵误差（cross-entropy error）组合使用。</p>
+
+      <h3>3.4 手写数字识别</h3>
+
+      <p>让我们通过 MNIST 数据集来实践一下。MNIST 是手写数字图像集...</p>
+    </div>
+    </div>
+  </div>
+
+  <script>
+    const panelLeft = document.getElementById('panelLeft');
+    const panelRight = document.getElementById('panelRight');
+    const overlay = document.getElementById('overlay');
+    const topbar = document.getElementById('topbar');
+    const selToolbar = document.getElementById('selToolbar');
+
+    // Toggle TOC
+    document.getElementById('btnToc').addEventListener('click', () => {
+      panelLeft.classList.toggle('open');
+      overlay.classList.toggle('show');
+    });
+    document.getElementById('closeLeft').addEventListener('click', () => {
+      panelLeft.classList.remove('open');
+      overlay.classList.remove('show');
+    });
+
+    // Toggle Annotations/AI panel
+    document.getElementById('btnAnno').addEventListener('click', () => {
+      panelRight.classList.toggle('open');
+      overlay.classList.toggle('show');
+    });
+    document.getElementById('closeRight').addEventListener('click', () => {
+      panelRight.classList.remove('open');
+      overlay.classList.remove('show');
+    });
+
+    overlay.addEventListener('click', () => {
+      panelLeft.classList.remove('open');
+      panelRight.classList.remove('open');
+      overlay.classList.remove('show');
+    });
+
+    // Selection toolbar mock
+    document.addEventListener('mouseup', (e) => {
+      const sel = window.getSelection();
+      if (sel && sel.toString().trim().length > 0) {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        selToolbar.style.top = (rect.top - 44) + 'px';
+        selToolbar.style.left = (rect.left + rect.width / 2 - 80) + 'px';
+        selToolbar.classList.add('visible');
+      } else {
+        selToolbar.classList.remove('visible');
+      }
+    });
+
+    // Auto hide topbar on scroll
+    let lastScroll = 0;
+    window.addEventListener('scroll', () => {
+      const cur = window.scrollY;
+      if (cur > 200 && cur > lastScroll) {
+        topbar.classList.add('hidden');
+      } else {
+        topbar.classList.remove('hidden');
+      }
+      lastScroll = cur;
+    });
+
+    // Tab switch in right panel
+    const tabAnno = document.getElementById('tabAnno');
+    const tabAi = document.getElementById('tabAi');
+    const annoContent = document.getElementById('annoContent');
+    const aiContent = document.getElementById('aiContent');
+
+    tabAnno.addEventListener('click', () => {
+      tabAnno.style.background = 'var(--accent-light)';
+      tabAnno.style.color = 'var(--accent)';
+      tabAi.style.background = 'transparent';
+      tabAi.style.color = 'var(--text-muted)';
+      annoContent.style.display = 'block';
+      aiContent.style.display = 'none';
+    });
+    tabAi.addEventListener('click', () => {
+      tabAi.style.background = 'var(--accent-light)';
+      tabAi.style.color = 'var(--accent)';
+      tabAnno.style.background = 'transparent';
+      tabAnno.style.color = 'var(--text-muted)';
+      annoContent.style.display = 'none';
+      aiContent.style.display = 'block';
+    });
+  </script>
+</body>
+</html>

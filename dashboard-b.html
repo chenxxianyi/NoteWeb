@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoteWeb · 仪表盘</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg-page: #F1F5F9;
+      --bg-card: #FFFFFF;
+      --bg-sidebar: #0F172A;
+      --text-primary: #1E293B;
+      --text-secondary: #64748B;
+      --text-muted: #94A3B8;
+      --accent: #2563EB;
+      --accent-hover: #1D4ED8;
+      --accent-light: #EFF6FF;
+      --border-color: #E2E8F0;
+      --success: #10B981;
+      --warning: #F59E0B;
+      --radius: 8px;
+      --radius-lg: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+      --sidebar-w: 240px;
+      --font-sans: 'Inter', 'Noto Sans SC', sans-serif;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ===== Sidebar ===== */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--bg-sidebar);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 10;
+    }
+    .sidebar__brand {
+      padding: 1.5rem 1.25rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .sidebar__brand h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+    }
+    .sidebar__brand span {
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.35);
+      margin-top: 0.2rem;
+      display: block;
+    }
+    .sidebar__nav {
+      flex: 1;
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .sidebar__label {
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: rgba(255,255,255,0.3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 1rem 0.75rem 0.4rem;
+    }
+    .sidebar__item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      border-radius: var(--radius);
+      color: rgba(255,255,255,0.6);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: all 0.12s;
+    }
+    .sidebar__item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    .sidebar__item.active { background: var(--accent); color: #fff; }
+    .sidebar__item svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.7; }
+    .sidebar__item.active svg { opacity: 1; }
+    .sidebar__item .badge {
+      margin-left: auto;
+      background: rgba(255,255,255,0.1);
+      padding: 0.1rem 0.45rem;
+      border-radius: 10px;
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.7);
+    }
+    .sidebar__item.active .badge { background: rgba(255,255,255,0.2); }
+
+    .sidebar__user {
+      padding: 0.75rem;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      color: rgba(255,255,255,0.6);
+      font-size: 0.8rem;
+    }
+    .sidebar__user-av {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    /* ===== Main ===== */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 1.5rem 2rem;
+      max-width: 1300px;
+    }
+
+    /* ===== Top Bar ===== */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+    .topbar__left h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+    .topbar__left p {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-top: 0.15rem;
+    }
+    .topbar__right {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+    .topbar__search {
+      position: relative;
+    }
+    .topbar__search input {
+      font-size: 0.85rem;
+      padding: 0.5rem 0.8rem 0.5rem 2.2rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      color: var(--text-primary);
+      outline: none;
+      width: 240px;
+    }
+    .topbar__search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+    .topbar__search svg {
+      position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%);
+      width: 16px; height: 16px; color: var(--text-muted);
+    }
+    .topbar__btn {
+      height: 36px;
+      padding: 0 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.12s;
+    }
+    .topbar__btn:hover { border-color: var(--accent); color: var(--accent); }
+    .topbar__btn svg { width: 16px; height: 16px; }
+
+    /* ===== KPI Row ===== */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .kpi-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      box-shadow: var(--shadow);
+    }
+    .kpi-card__label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .kpi-card__value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-top: 0.3rem;
+    }
+    .kpi-card__change {
+      font-size: 0.75rem;
+      font-weight: 500;
+      margin-top: 0.3rem;
+    }
+    .kpi-card__change.up { color: var(--success); }
+    .kpi-card__change.down { color: #EF4444; }
+
+    /* ===== Main Grid ===== */
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .panel__header h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    .panel__header a {
+      font-size: 0.8rem;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .panel__header a:hover { text-decoration: underline; }
+
+    /* ===== Table ===== */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .data-table th {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      text-align: left;
+      padding: 0.6rem 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .data-table td {
+      padding: 0.65rem 1.25rem;
+      font-size: 0.85rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: rgba(37,99,235,0.03); }
+    .data-table .doc-type {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+    .type-pdf { background: #FEE2E2; color: #B91C1C; }
+    .type-md { background: #DBEAFE; color: #1E40AF; }
+    .type-docx { background: #D1FAE5; color: #065F46; }
+    .data-table .progress-bar {
+      display: inline-block;
+      width: 80px; height: 4px;
+      background: var(--border-color);
+      border-radius: 2px;
+      vertical-align: middle;
+      margin-right: 0.5rem;
+    }
+    .data-table .progress-bar__fill {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    /* ===== Annotation list ===== */
+    .anno-list { padding: 0; }
+    .anno-item {
+      padding: 0.8rem 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .anno-item:last-child { border-bottom: none; }
+    .anno-item:hover { background: rgba(37,99,235,0.03); }
+    .anno-item__text {
+      font-size: 0.85rem;
+      color: var(--text-primary);
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .anno-item__meta {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-top: 0.3rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .anno-tag {
+      padding: 0.05rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 600;
+    }
+    .tag-highlight { background: #FEF3C7; color: #92400E; }
+    .tag-note { background: #DBEAFE; color: #1E40AF; }
+    .tag-annot { background: #D1FAE5; color: #065F46; }
+
+    /* ===== Upload Bar (Compact) ===== */
+    .upload-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.7rem 1rem;
+      border: 1px dashed var(--border-color);
+      border-radius: var(--radius-lg);
+      background: var(--bg-card);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .upload-bar:hover {
+      border-color: var(--accent);
+      background: var(--accent-light);
+    }
+    .upload-bar__icon {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      background: var(--accent-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    .upload-bar__icon i { width: 18px; height: 18px; }
+    .upload-bar__text { flex: 1; }
+    .upload-bar__title {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    .upload-bar__hint {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.1rem;
+    }
+    .upload-bar__btn {
+      padding: 0.35rem 0.9rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.12s;
+      flex-shrink: 0;
+    }
+    .upload-bar__btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* 卡片内上传条间距与其他内容对齐 */
+    .panel .upload-bar {
+      border: none;
+      background: transparent;
+      border-radius: 0;
+      padding: 0.75rem 1.25rem;
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 1024px) {
+      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .grid-2col { grid-template-columns: 1fr; }
+      .main { padding: 1rem; }
+    }
+    @media (max-width: 640px) {
+      :root { --sidebar-w: 0px; }
+      .sidebar { display: none; }
+      .main { margin-left: 0; }
+      .kpi-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar__brand">
+      <h1>NoteWeb</h1>
+      <span>知识型阅读工作台</span>
+    </div>
+    <div class="sidebar__nav">
+      <div class="sidebar__label">导航</div>
+      <a href="#" class="sidebar__item active">
+        <i data-lucide="layout-dashboard" class="icon-sm"></i>
+        仪表盘
+      </a>
+      <a href="#" class="sidebar__item">
+        <i data-lucide="file-text" class="icon-sm"></i>
+        文件库
+        <span class="badge">12</span>
+      </a>
+      <a href="#" class="sidebar__item">
+        <i data-lucide="book-open" class="icon-sm"></i>
+        阅读器
+      </a>
+      <a href="#" class="sidebar__item">
+        <i data-lucide="pen-square" class="icon-sm"></i>
+        笔记
+        <span class="badge">8</span>
+      </a>
+      <a href="#" class="sidebar__item">
+        <i data-lucide="settings" class="icon-sm"></i>
+        设置
+      </a>
+    </div>
+    <div class="sidebar__user">
+      <div class="sidebar__user-av">M</div>
+      <div>
+        <div style="color:#fff;font-weight:500;">小明</div>
+        <div style="font-size:0.7rem;color:rgba(255,255,255,0.35);">xiaoming@email.com</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="topbar__left">
+        <h1>仪表盘</h1>
+        <p>欢迎回来，小明 · 今日阅读 23 分钟</p>
+      </div>
+      <div class="topbar__right">
+        <div class="topbar__search">
+          <i data-lucide="search" class="icon-sm" style="position:absolute;left:0.7rem;top:50%;transform:translateY(-50%);color:var(--text-muted);"></i>
+          <input type="text" placeholder="搜索文档..." />
+        </div>
+        <button class="topbar__btn">
+          <i data-lucide="upload" class="icon-sm"></i>
+          上传
+        </button>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-card__label">文档总数</div>
+        <div class="kpi-card__value">12</div>
+        <div class="kpi-card__change up">↑ 3 本周新增</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-card__label">批注总数</div>
+        <div class="kpi-card__value">47</div>
+        <div class="kpi-card__change up">↑ 8 本周新增</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-card__label">笔记总数</div>
+        <div class="kpi-card__value">8</div>
+        <div class="kpi-card__change up">↑ 2 本周新增</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-card__label">本周阅读</div>
+        <div class="kpi-card__value">6.5h</div>
+        <div class="kpi-card__change up">↑ 12% 较上周</div>
+      </div>
+    </div>
+
+    <!-- 快捷上传 + 最近上传 -->
+    <div class="grid-2col">
+      <div class="panel">
+        <div class="panel__header">
+          <h3>快捷上传</h3>
+        </div>
+        <div class="upload-bar">
+          <div class="upload-bar__icon">
+            <i data-lucide="upload"></i>
+          </div>
+          <div class="upload-bar__text">
+            <div class="upload-bar__title">拖拽文件到此处上传</div>
+            <div class="upload-bar__hint">支持 PDF / Markdown / DOCX / TXT</div>
+          </div>
+          <button class="upload-bar__btn">选择文件</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel__header">
+          <h3>最近上传</h3>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>文件</th><th>类型</th><th>时间</th></tr></thead>
+          <tbody>
+            <tr><td>Designing Data-Intensive Applications</td><td><span class="doc-type type-pdf">PDF</span></td><td style="color:var(--text-muted);font-size:0.75rem;">今天 14:30</td></tr>
+            <tr><td>系统设计面试笔记.md</td><td><span class="doc-type type-md">MD</span></td><td style="color:var(--text-muted);font-size:0.75rem;">昨天 20:15</td></tr>
+            <tr><td>2025年度技术规划.docx</td><td><span class="doc-type type-docx">DOCX</span></td><td style="color:var(--text-muted);font-size:0.75rem;">3 天前</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid-2col">
+      <!-- Recent Documents -->
+      <div class="panel">
+        <div class="panel__header">
+          <h3>最近阅读</h3>
+          <a href="#">查看全部 →</a>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr><th>文件名</th><th>类型</th><th>进度</th><th>更新</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>深度学习入门：基于Python...</td>
+              <td><span class="doc-type type-pdf">PDF</span></td>
+              <td><span class="progress-bar"><span class="progress-bar__fill" style="width:32%"></span></span>32%</td>
+              <td style="color:var(--text-muted);font-size:0.75rem;">2 小时前</td>
+            </tr>
+            <tr>
+              <td>Vue.js 设计与实现</td>
+              <td><span class="doc-type type-md">MD</span></td>
+              <td><span class="progress-bar"><span class="progress-bar__fill" style="width:67%"></span></span>67%</td>
+              <td style="color:var(--text-muted);font-size:0.75rem;">昨天</td>
+            </tr>
+            <tr>
+              <td>Rust 程序设计语言</td>
+              <td><span class="doc-type type-pdf">PDF</span></td>
+              <td><span class="progress-bar"><span class="progress-bar__fill" style="width:45%"></span></span>45%</td>
+              <td style="color:var(--text-muted);font-size:0.75rem;">3 天前</td>
+            </tr>
+            <tr>
+              <td>Designing Data-Intensive...</td>
+              <td><span class="doc-type type-pdf">PDF</span></td>
+              <td><span class="progress-bar"><span class="progress-bar__fill" style="width:12%"></span></span>12%</td>
+              <td style="color:var(--text-muted);font-size:0.75rem;">今天</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Recent Annotations -->
+      <div class="panel">
+        <div class="panel__header">
+          <h3>最新批注</h3>
+          <a href="#">查看全部 →</a>
+        </div>
+        <div class="anno-list">
+          <div class="anno-item">
+            <div class="anno-item__text">"注意力机制的本质是让模型学会关注输入序列中重要的部分..."</div>
+            <div class="anno-item__meta">
+              <span class="anno-tag tag-highlight">高亮</span>
+              深度学习入门 · 2 小时前
+            </div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-item__text">"虚拟 DOM 的性能优势不在于比真实 DOM 快，而在于它让开发者不必手动操作 DOM。"</div>
+            <div class="anno-item__meta">
+              <span class="anno-tag tag-note">笔记</span>
+              Vue.js 设计与实现 · 昨天
+            </div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-item__text">"Rust 的所有权系统在编译时就能保证内存安全，无需垃圾回收。"</div>
+            <div class="anno-item__meta">
+              <span class="anno-tag tag-annot">批注</span>
+              Rust 程序设计 · 3 天前
+            </div>
+          </div>
+          <div class="anno-item">
+            <div class="anno-item__text">"分布式系统中最难处理的是部分失败和网络分区问题。"</div>
+            <div class="anno-item__meta">
+              <span class="anno-tag tag-highlight">高亮</span>
+              DDIA · 5 天前
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>
