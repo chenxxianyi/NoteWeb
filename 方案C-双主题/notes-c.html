@@ -38,9 +38,9 @@
     .sidebar {
       width:var(--sidebar-w); background:var(--bg-sidebar); border-right:1px solid var(--border-color);
       display:flex; flex-direction:column; position:fixed; top:0; left:0; bottom:0; z-index:10;
-      transition:all 0.3s;
+      transition:all 0.3s; overflow:hidden;
     }
-    .sidebar__brand { padding:1.25rem; border-bottom:1px solid var(--border-color); }
+    .sidebar__brand { padding:1.25rem; border-bottom:1px solid var(--border-color); display:flex; align-items:center; justify-content:space-between; }
     .sidebar__brand h1 { font-family:var(--font-display); font-size:1.2rem; font-weight:600; color:var(--accent); }
     .sidebar__brand span { font-family:var(--font-ui); font-size:0.65rem; color:var(--text-muted); }
     .sidebar__nav { flex:1; padding:0.75rem; display:flex; flex-direction:column; gap:0.15rem; }
@@ -50,7 +50,26 @@
     .sidebar__item i { width:18px; height:18px; flex-shrink:0; }
     .sidebar__user { padding:0.75rem; border-top:1px solid var(--border-color); display:flex; align-items:center; gap:0.6rem; }
     .sidebar__user-av { width:32px; height:32px; border-radius:50%; background:var(--accent); display:flex; align-items:center; justify-content:center; color:#fff; font-family:var(--font-ui); font-size:0.75rem; font-weight:600; flex-shrink:0; }
-    .sidebar-toggle { display:none; position:fixed; top:0.8rem; left:0.8rem; z-index:30; width:36px; height:36px; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-card); align-items:center; justify-content:center; cursor:pointer; color:var(--text-secondary); }
+    .sidebar-toggle {
+      width:28px; height:28px; border:1px solid var(--border-color); border-radius:6px;
+      background:transparent; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; color:var(--text-muted); transition:all 0.15s; flex-shrink:0;
+    }
+    .sidebar-toggle:hover { background:var(--accent-light); color:var(--accent); }
+    .sidebar-toggle i { width:16px; height:16px; transition:transform 0.25s ease; }
+
+    /* Sidebar collapsed → icon‑only mode */
+    body.sidebar-collapsed .sidebar { width:56px; overflow:hidden; transition:width 0.25s; }
+    body.sidebar-collapsed .sidebar__brand h1,
+    body.sidebar-collapsed .sidebar__brand span,
+    body.sidebar-collapsed .sidebar__item span,
+    body.sidebar-collapsed .sidebar__user div,
+    body.sidebar-collapsed .sidebar__user-av { display:none; }
+    body.sidebar-collapsed .sidebar__item { font-size:0; justify-content:center; padding:0.6rem 0; }
+    body.sidebar-collapsed .sidebar__item i { margin:0; }
+    body.sidebar-collapsed .sidebar__user { justify-content:center; }
+    body.sidebar-collapsed .sidebar-toggle i { transform:rotate(180deg); }
+    body.sidebar-collapsed .main { margin-left:56px; }
 
     .main { margin-left:var(--sidebar-w); flex:1; display:flex; overflow:hidden; transition:margin-left 0.3s; }
 
@@ -111,8 +130,6 @@
     @media (max-width: 768px) {
       .note-list { width:100%; }
       .note-editor { display:none; }
-      .sidebar-toggle { display:flex; }
-      body.sidebar-collapsed .sidebar { width:0; overflow:hidden; border-right:none; }
     }
     @media (max-width: 520px) {
       :root { --sidebar-w:0px; }
@@ -122,11 +139,10 @@
   </style>
 </head>
 <body>
-  <button class="sidebar-toggle" id="sidebarToggle"><i data-lucide="menu"></i></button>
   <button class="theme-btn" id="themeToggle"><i data-lucide="moon"></i></button>
 
   <nav class="sidebar" id="sidebar">
-    <div class="sidebar__brand"><h1>NoteWeb</h1><span>知识型阅读工作台</span></div>
+    <div class="sidebar__brand"><h1>NoteWeb</h1><span>知识型阅读工作台</span><button class="sidebar-toggle" id="sidebarToggle"><i data-lucide="panel-left-close"></i></button></div>
     <div class="sidebar__nav">
       <a href="#" class="sidebar__item"><i data-lucide="layout-dashboard"></i> 仪表盘</a>
       <a href="#" class="sidebar__item"><i data-lucide="file-text"></i> 文件库</a>
