@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoteWeb · 文件库</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg-page: #F1F5F9; --bg-card: #FFFFFF; --bg-sidebar: #0F172A;
+      --text-primary: #1E293B; --text-secondary: #64748B; --text-muted: #94A3B8;
+      --accent: #2563EB; --accent-hover: #1D4ED8; --accent-light: #EFF6FF;
+      --border-color: #E2E8F0;
+      --success: #10B981;
+      --radius: 6px; --radius-lg: 8px;
+      --shadow: 0 1px 2px rgba(0,0,0,0.05);
+      --sidebar-w: 240px;
+      --font-sans: 'Inter', 'Noto Sans SC', sans-serif;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: var(--font-sans); background: var(--bg-page); color: var(--text-primary);
+      min-height: 100vh; display: flex; overflow-x: hidden;
+    }
+
+    .sidebar {
+      width: var(--sidebar-w); background: var(--bg-sidebar);
+      display:flex; flex-direction:column; position:fixed; top:0; left:0; bottom:0; z-index:10;
+    }
+    .sidebar__brand { padding:1.5rem 1.25rem; border-bottom:1px solid rgba(255,255,255,0.06); }
+    .sidebar__brand h1 { font-size:1.25rem; font-weight:700; color:#fff; letter-spacing:-0.02em; }
+    .sidebar__brand span { font-size:0.75rem; color:rgba(255,255,255,0.35); display:block; margin-top:0.2rem; }
+    .sidebar__nav { flex:1; padding:0.75rem; display:flex; flex-direction:column; gap:0.15rem; }
+    .sidebar__item {
+      display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.75rem;
+      border-radius:var(--radius); color:rgba(255,255,255,0.6); text-decoration:none;
+      font-size:0.85rem; font-weight:500; transition:all 0.12s;
+    }
+    .sidebar__item:hover { background:rgba(255,255,255,0.06); color:#fff; }
+    .sidebar__item.active { background:var(--accent); color:#fff; }
+    .sidebar__item i { width:18px; height:18px; flex-shrink:0; opacity:0.7; }
+    .sidebar__item.active i { opacity:1; }
+    .sidebar__item .badge { margin-left:auto; background:rgba(255,255,255,0.1); padding:0.1rem 0.45rem; border-radius:10px; font-size:0.7rem; color:rgba(255,255,255,0.7); }
+    .sidebar__user { padding:0.75rem; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; gap:0.6rem; color:rgba(255,255,255,0.6); font-size:0.8rem; }
+    .sidebar__user-av { width:32px; height:32px; border-radius:50%; background:var(--accent); display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.75rem; font-weight:600; }
+
+    .main { margin-left:var(--sidebar-w); flex:1; padding:1.5rem 2rem; max-width:1300px; min-width:0; }
+
+    .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; }
+    .topbar__left h1 { font-size:1.35rem; font-weight:600; }
+    .topbar__left p { font-size:0.85rem; color:var(--text-secondary); margin-top:0.15rem; }
+    .topbar__right { display:flex; gap:0.6rem; align-items:center; }
+    .topbar__search { position:relative; }
+    .topbar__search i { position:absolute; left:0.7rem; top:50%; transform:translateY(-50%); color:var(--text-muted); }
+    .topbar__search input {
+      font-size:0.85rem; padding:0.5rem 0.8rem 0.5rem 2.2rem;
+      border:1px solid var(--border-color); border-radius:var(--radius);
+      background:var(--bg-card); color:var(--text-primary); outline:none; width:240px;
+    }
+    .topbar__search input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
+    .topbar__btn {
+      height:36px; padding:0 1rem; border:1px solid var(--border-color); border-radius:var(--radius);
+      background:var(--bg-card); color:var(--text-secondary);
+      font-family:var(--font-sans); font-size:0.85rem; cursor:pointer;
+      display:flex; align-items:center; gap:0.4rem; transition:all 0.12s;
+    }
+    .topbar__btn:hover { border-color:var(--accent); color:var(--accent); }
+    .topbar__btn i { width:16px; height:16px; }
+
+    /* Upload zone */
+    .upload-zone {
+      border:1px dashed var(--border-color); border-radius:var(--radius-lg);
+      padding:0.8rem 1.25rem; margin-bottom:1.25rem; cursor:pointer;
+      display:flex; align-items:center; gap:0.75rem;
+      background:var(--bg-card); transition:all 0.15s;
+    }
+    .upload-zone:hover { border-color:var(--accent); background:var(--accent-light); }
+    .upload-zone__icon {
+      width:36px; height:36px; border-radius:6px; background:var(--accent-light);
+      display:flex; align-items:center; justify-content:center; color:var(--accent); flex-shrink:0;
+    }
+    .upload-zone__icon i { width:18px; height:18px; }
+    .upload-zone__text { flex:1; font-size:0.85rem; color:var(--text-secondary); }
+    .upload-zone__text strong { color:var(--text-primary); }
+    .upload-zone__btn {
+      padding:0.35rem 0.9rem; border:1px solid var(--border-color); border-radius:var(--radius);
+      background:var(--bg-card); font-family:var(--font-sans); font-size:0.8rem;
+      color:var(--text-secondary); cursor:pointer; transition:all 0.12s; flex-shrink:0;
+    }
+    .upload-zone__btn:hover { border-color:var(--accent); color:var(--accent); }
+
+    /* Filter tags */
+    .filter-bar { display:flex; gap:0.3rem; margin-bottom:1rem; flex-wrap:wrap; }
+    .filter-tag {
+      padding:0.25rem 0.75rem; border:1px solid var(--border-color); border-radius:var(--radius);
+      background:var(--bg-card); font-family:var(--font-sans); font-size:0.8rem;
+      color:var(--text-secondary); cursor:pointer; transition:all 0.12s;
+    }
+    .filter-tag:hover { border-color:var(--accent); color:var(--accent); }
+    .filter-tag.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+    /* Table */
+    .table-wrap {
+      background:var(--bg-card); border:1px solid var(--border-color);
+      border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow);
+    }
+    table { width:100%; border-collapse:collapse; }
+    th {
+      font-size:0.7rem; font-weight:600; color:var(--text-muted);
+      text-transform:uppercase; letter-spacing:0.05em; text-align:left;
+      padding:0.7rem 1rem; border-bottom:1px solid var(--border-color);
+      background:var(--bg-page);
+    }
+    td { padding:0.65rem 1rem; font-size:0.85rem; border-bottom:1px solid var(--border-color); }
+    tr:last-child td { border-bottom:none; }
+    tr:hover td { background:rgba(37,99,235,0.03); }
+    .doc-type {
+      display:inline-block; padding:0.1rem 0.4rem; border-radius:4px; font-size:0.7rem; font-weight:600;
+    }
+    .t-pdf { background:#FEE2E2; color:#B91C1C; }
+    .t-md  { background:#DBEAFE; color:#1E40AF; }
+    .t-docx{ background:#D1FAE5; color:#065F46; }
+    .t-txt { background:#F3E8FF; color:#6B21A8; }
+    .doc-name { font-weight:500; color:var(--text-primary); cursor:pointer; }
+    .doc-name:hover { color:var(--accent); }
+    .doc-action {
+      width:30px; height:30px; border:none; border-radius:var(--radius);
+      background:transparent; cursor:pointer; color:var(--text-muted);
+      display:inline-flex; align-items:center; justify-content:center;
+      transition:all 0.1s;
+    }
+    .doc-action:hover { background:var(--accent-light); color:var(--accent); }
+    .doc-action i { width:16px; height:16px; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .main { padding:1rem; }
+      .topbar { flex-direction:column; align-items:stretch; gap:0.5rem; }
+      .topbar__right { flex-wrap:wrap; }
+      .topbar__search input { width:100%; }
+      .upload-zone { flex-wrap:wrap; }
+      .table-wrap { overflow-x:auto; }
+    }
+    @media (max-width: 640px) {
+      :root { --sidebar-w:0px; }
+      .sidebar { display:none; }
+      .main { margin-left:0; }
+      th, td { padding:0.5rem 0.6rem; font-size:0.78rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="sidebar__brand"><h1>NoteWeb</h1><span>知识型阅读工作台</span></div>
+    <div class="sidebar__nav">
+      <a href="#" class="sidebar__item"><i data-lucide="layout-dashboard"></i> 仪表盘</a>
+      <a href="#" class="sidebar__item active"><i data-lucide="file-text"></i> 文件库 <span class="badge">12</span></a>
+      <a href="#" class="sidebar__item"><i data-lucide="book-open"></i> 阅读器</a>
+      <a href="#" class="sidebar__item"><i data-lucide="pen-square"></i> 笔记 <span class="badge">8</span></a>
+      <a href="#" class="sidebar__item"><i data-lucide="settings"></i> 设置</a>
+    </div>
+    <div class="sidebar__user"><div class="sidebar__user-av">M</div><div><div style="color:#fff;font-weight:500;">小明</div><div style="font-size:0.7rem;color:rgba(255,255,255,0.35);">xiaoming@email.com</div></div></div>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar__left"><h1>文件库</h1><p>共 12 个文件 · 已用 52.8 MB</p></div>
+      <div class="topbar__right">
+        <div class="topbar__search"><i data-lucide="search"></i><input type="text" placeholder="搜索文件..." /></div>
+        <button class="topbar__btn"><i data-lucide="upload"></i> 上传</button>
+      </div>
+    </div>
+
+    <!-- Upload zone -->
+    <div class="upload-zone">
+      <div class="upload-zone__icon"><i data-lucide="upload"></i></div>
+      <div class="upload-zone__text"><strong>拖拽文件到此处上传</strong> · 支持 PDF / MD / DOCX / TXT</div>
+      <button class="upload-zone__btn">选择文件</button>
+    </div>
+
+    <!-- Filter tags -->
+    <div class="filter-bar">
+      <button class="filter-tag active">全部</button>
+      <button class="filter-tag">PDF <span style="color:var(--text-muted);font-weight:400;">(4)</span></button>
+      <button class="filter-tag">Markdown <span style="color:var(--text-muted);font-weight:400;">(3)</span></button>
+      <button class="filter-tag">DOCX <span style="color:var(--text-muted);font-weight:400;">(2)</span></button>
+      <button class="filter-tag">TXT <span style="color:var(--text-muted);font-weight:400;">(3)</span></button>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>文件名</th><th>类型</th><th>大小</th><th>进度</th><th>更新</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="doc-name">深度学习入门：基于Python的理论与实现</td><td><span class="doc-type t-pdf">PDF</span></td><td style="color:var(--text-muted);">12.5 MB</td><td>32%</td><td style="color:var(--text-muted);">2 小时前</td><td><button class="doc-action"><i data-lucide="more-vertical"></i></button></td></tr>
+          <tr><td class="doc-name">Vue.js 设计与实现</td><td><span class="doc-type t-md">MD</span></td><td style="color:var(--text-muted);">2.3 MB</td><td>67%</td><td style="color:var(--text-muted);">昨天</td><td><button class="doc-action"><i data-lucide="more-vertical"></i></button></td></tr>
+          <tr><td class="doc-name">Rust 程序设计语言 中文版</td><td><span class="doc-type t-pdf">PDF</span></td><td style="color:var(--text-muted);">8.1 MB</td><td>45%</td><td style="color:var(--text-muted);">3 天前</td><td><button class="doc-action"><i data-lucide="more-vertical"></i></button></td></tr>
+          <tr><td class="doc-name">Designing Data-Intensive Applications</td><td><span class="doc-type t-pdf">PDF</span></td><td style="color:var(--text-muted);">24.0 MB</td><td>12%</td><td style="color:var(--text-muted);">今天</td><td><button class="doc-action"><i data-lucide="more-vertical"></i></button></td></tr>
+          <tr><td class="doc-name">系统设计面试笔记</td><td><span class="doc-type t-md">MD</span></td><td style="color:var(--text-muted);">1.2 MB</td><td><span style="color:var(--text-muted);">未读</span></td><td style="color:var(--text-muted);">昨天</td><td><button class="doc-action"><i data-lucide="more-vertical"></i></button></td></tr>
+          <tr><td class="doc-name">2025年度技术规划</td><td><span class="doc-type t-docx">DOCX</span></td><td style="color:var(--text-muted);">3.5 MB</td><td><span style="color:var(--text-muted);">未读</span></td><td style="color:var(--text-muted);">3 天前</td><td><button class="doc-action"><i data-lucide="more-vertical"></i></button></td></tr>
+          <tr><td class="doc-name">深入理解计算机系统</td><td><span class="doc-type t-pdf">PDF</span></td><td style="color:var(--text-muted);">18.2 MB</td><td>8%</td><td style="color:var(--text-muted);">1 周前</td><td><button class="doc-action"><i data-lucide="more-vertical"></i></button></td></tr>
+          <tr><td class="doc-name">学习笔记汇总</td><td><span class="doc-type t-txt">TXT</span></td><td style="color:var(--text-muted);">0.5 MB</td><td><span style="color:var(--text-muted);">未读</span></td><td style="color:var(--text-muted);">5 天前</td><td><button class="doc-action"><i data-lucide="more-vertical"></i></button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

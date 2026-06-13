@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoteWeb · 笔记</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg-page: #F5F0EB; --bg-card: #FAF8F5; --bg-sidebar: #F0EAE3;
+      --text-primary: #3D2E24; --text-secondary: #8B7A6B; --text-muted: #B8A99A;
+      --accent: #C67A4E; --accent-hover: #B06A40; --accent-light: #F0E6DC;
+      --border-color: #E4D9CE;
+      --font-display: 'EB Garamond', 'Noto Serif SC', serif;
+      --font-body: 'Noto Serif SC', 'Inter', serif;
+      --font-ui: 'Inter', 'Noto Sans SC', sans-serif;
+      --radius: 8px; --radius-lg: 12px;
+      --sidebar-w: 220px;
+    }
+    body.theme-digital {
+      --bg-page: #FAFAFA; --bg-card: #FFFFFF; --bg-sidebar: #FFFFFF;
+      --text-primary: #1E293B; --text-secondary: #64748B; --text-muted: #94A3B8;
+      --accent: #2563EB; --accent-hover: #1D4ED8; --accent-light: #EFF6FF;
+      --border-color: #E2E8F0;
+      --font-display: 'Inter', 'Noto Sans SC', sans-serif;
+      --font-body: 'Inter', 'Noto Sans SC', sans-serif;
+      --font-ui: 'Inter', 'Noto Sans SC', sans-serif;
+      --radius: 6px; --radius-lg: 10px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: var(--font-body); background: var(--bg-page); color: var(--text-primary);
+      height:100vh; display:flex; overflow:hidden; transition:background 0.4s, color 0.4s;
+    }
+    .sidebar {
+      width:var(--sidebar-w); background:var(--bg-sidebar); border-right:1px solid var(--border-color);
+      display:flex; flex-direction:column; position:fixed; top:0; left:0; bottom:0; z-index:10;
+      transition:all 0.3s;
+    }
+    .sidebar__brand { padding:1.25rem; border-bottom:1px solid var(--border-color); }
+    .sidebar__brand h1 { font-family:var(--font-display); font-size:1.2rem; font-weight:600; color:var(--accent); }
+    .sidebar__brand span { font-family:var(--font-ui); font-size:0.65rem; color:var(--text-muted); }
+    .sidebar__nav { flex:1; padding:0.75rem; display:flex; flex-direction:column; gap:0.15rem; }
+    .sidebar__item { display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.75rem; border-radius:var(--radius); color:var(--text-secondary); text-decoration:none; font-family:var(--font-ui); font-size:0.85rem; font-weight:500; transition:all 0.15s; }
+    .sidebar__item:hover { background:var(--accent-light); color:var(--text-primary); }
+    .sidebar__item.active { background:var(--accent-light); color:var(--accent); font-weight:600; }
+    .sidebar__item i { width:18px; height:18px; flex-shrink:0; }
+    .sidebar__user { padding:0.75rem; border-top:1px solid var(--border-color); display:flex; align-items:center; gap:0.6rem; }
+    .sidebar__user-av { width:32px; height:32px; border-radius:50%; background:var(--accent); display:flex; align-items:center; justify-content:center; color:#fff; font-family:var(--font-ui); font-size:0.75rem; font-weight:600; flex-shrink:0; }
+    .sidebar-toggle { display:none; position:fixed; top:0.8rem; left:0.8rem; z-index:30; width:36px; height:36px; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-card); align-items:center; justify-content:center; cursor:pointer; color:var(--text-secondary); }
+
+    .main { margin-left:var(--sidebar-w); flex:1; display:flex; overflow:hidden; transition:margin-left 0.3s; }
+
+    .note-list {
+      width:320px; background:var(--bg-card); border-right:1px solid var(--border-color);
+      display:flex; flex-direction:column; flex-shrink:0; transition:all 0.4s;
+    }
+    .nl-header { padding:1rem 1.25rem; border-bottom:1px solid var(--border-color); display:flex; align-items:center; justify-content:space-between; }
+    .nl-header h2 { font-family:var(--font-display); font-size:1rem; font-weight:500; }
+    .nl-header__btn { width:32px; height:32px; border:1px solid var(--border-color); border-radius:50%; background:transparent; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--accent); transition:all 0.12s; }
+    .nl-header__btn:hover { background:var(--accent-light); }
+    .nl-header__btn i { width:16px; height:16px; }
+
+    .nl-search { padding:0.6rem 1rem; border-bottom:1px solid var(--border-color); }
+    .nl-search input { width:100%; padding:0.4rem 0.7rem; border:1px solid var(--border-color); border-radius:16px; background:var(--bg-page); font-family:var(--font-ui); font-size:0.78rem; color:var(--text-primary); outline:none; }
+
+    .nl-filter { padding:0.5rem 1rem; border-bottom:1px solid var(--border-color); display:flex; gap:0.3rem; flex-wrap:wrap; }
+    .nl-filter__btn { padding:0.15rem 0.5rem; border:1px solid var(--border-color); border-radius:10px; background:transparent; font-family:var(--font-ui); font-size:0.65rem; color:var(--text-secondary); cursor:pointer; transition:all 0.1s; }
+    .nl-filter__btn:hover { border-color:var(--accent); color:var(--accent); }
+    .nl-filter__btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+    .nl-items { flex:1; overflow-y:auto; }
+    .nl-item { padding:0.75rem 1.25rem; border-bottom:1px solid var(--border-color); cursor:pointer; transition:background 0.1s; }
+    .nl-item:hover { background:var(--accent-light); }
+    .nl-item.active { background:var(--accent-light); border-left:3px solid var(--accent); }
+    .nl-item__title { font-size:0.85rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .nl-item__preview { font-size:0.75rem; color:var(--text-secondary); line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:0.1rem; }
+    .nl-item__meta { font-family:var(--font-ui); font-size:0.65rem; color:var(--text-muted); margin-top:0.2rem; display:flex; gap:0.3rem; align-items:center; }
+    .nb { padding:0.05rem 0.3rem; border-radius:3px; font-size:0.6rem; font-weight:600; }
+    .nb-r { background:#FDE68A; color:#92400E; }
+    .nb-t { background:#DBEAFE; color:#1E40AF; }
+    .nb-l { background:#D1FAE5; color:#065F46; }
+
+    .note-editor { flex:1; display:flex; flex-direction:column; background:var(--bg-page); transition:background 0.4s; }
+    .ne-topbar { padding:0.5rem 1.25rem; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap; }
+    .ne-btn { width:28px; height:28px; border:none; border-radius:4px; background:transparent; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--text-secondary); transition:all 0.1s; }
+    .ne-btn:hover { background:var(--accent-light); color:var(--accent); }
+    .ne-btn i { width:15px; height:15px; }
+    .ne-divider { width:1px; height:16px; background:var(--border-color); margin:0 0.15rem; }
+
+    .ne-title { padding:1rem 1.25rem 0.3rem; border:none; font-family:var(--font-display); font-size:1.2rem; font-weight:500; color:var(--text-primary); background:transparent; outline:none; width:100%; }
+    .ne-body { flex:1; padding:0.5rem 1.25rem 2rem; border:none; font-family:var(--font-body); font-size:0.9rem; line-height:1.8; color:var(--text-primary); background:transparent; outline:none; resize:none; width:100%; }
+
+    .ne-footer { padding:0.5rem 1.25rem; border-top:1px solid var(--border-color); display:flex; align-items:center; justify-content:space-between; font-family:var(--font-ui); font-size:0.7rem; color:var(--text-muted); }
+    .ne-footer__actions { display:flex; gap:0.4rem; }
+    .ne-footer__btn { padding:0.25rem 0.6rem; border:1px solid var(--border-color); border-radius:14px; background:var(--bg-card); font-family:var(--font-ui); font-size:0.7rem; color:var(--text-secondary); cursor:pointer; transition:all 0.1s; }
+    .ne-footer__btn:hover { border-color:var(--accent); color:var(--accent); }
+
+    .theme-btn {
+      position:fixed; top:0.6rem; right:0.6rem; z-index:40;
+      width:34px; height:34px; border:1px solid var(--border-color); border-radius:50%;
+      background:var(--bg-card); display:flex; align-items:center; justify-content:center;
+      cursor:pointer; color:var(--text-muted); transition:all 0.3s;
+    }
+    .theme-btn:hover { border-color:var(--accent); color:var(--accent); }
+    .theme-btn i { width:16px; height:16px; }
+
+    @media (max-width: 768px) {
+      .note-list { width:100%; }
+      .note-editor { display:none; }
+      .sidebar-toggle { display:flex; }
+      body.sidebar-collapsed .sidebar { width:0; overflow:hidden; border-right:none; }
+    }
+    @media (max-width: 520px) {
+      :root { --sidebar-w:0px; }
+      .sidebar { display:none; }
+      .main { margin-left:0; }
+    }
+  </style>
+</head>
+<body>
+  <button class="sidebar-toggle" id="sidebarToggle"><i data-lucide="menu"></i></button>
+  <button class="theme-btn" id="themeToggle"><i data-lucide="moon"></i></button>
+
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar__brand"><h1>NoteWeb</h1><span>知识型阅读工作台</span></div>
+    <div class="sidebar__nav">
+      <a href="#" class="sidebar__item"><i data-lucide="layout-dashboard"></i> 仪表盘</a>
+      <a href="#" class="sidebar__item"><i data-lucide="file-text"></i> 文件库</a>
+      <a href="#" class="sidebar__item"><i data-lucide="book-open"></i> 阅读器</a>
+      <a href="#" class="sidebar__item active"><i data-lucide="pen-square"></i> 笔记</a>
+      <a href="#" class="sidebar__item"><i data-lucide="settings"></i> 设置</a>
+    </div>
+    <div class="sidebar__user"><div class="sidebar__user-av">M</div><div><div style="font-size:0.8rem;">小明</div><div style="font-size:0.65rem;color:var(--text-muted);">xiaoming@email.com</div></div></div>
+  </nav>
+
+  <div class="main">
+    <div class="note-list">
+      <div class="nl-header"><h2>笔记</h2><button class="nl-header__btn"><i data-lucide="plus"></i></button></div>
+      <div class="nl-search"><input type="text" placeholder="搜索笔记..." /></div>
+      <div class="nl-filter">
+        <button class="nl-filter__btn active">全部</button>
+        <button class="nl-filter__btn">阅读笔记</button>
+        <button class="nl-filter__btn">技术</button>
+        <button class="nl-filter__btn">随笔</button>
+      </div>
+      <div class="nl-items">
+        <div class="nl-item active"><div class="nl-item__title">注意力机制的理解与思考</div><div class="nl-item__preview">注意力机制的本质是让模型学会关注输入序列中重要的部分...</div><div class="nl-item__meta"><span class="nb nb-r">阅读笔记</span> 深度学习入门 · 2h前</div></div>
+        <div class="nl-item"><div class="nl-item__title">虚拟DOM的性能分析</div><div class="nl-item__preview">虚拟 DOM 的性能优势不在于比真实 DOM 快...</div><div class="nl-item__meta"><span class="nb nb-t">技术</span> Vue.js 设计与实现 · 昨天</div></div>
+        <div class="nl-item"><div class="nl-item__title">Rust所有权系统笔记</div><div class="nl-item__preview">Rust 的所有权系统在编译时就能保证内存安全...</div><div class="nl-item__meta"><span class="nb nb-r">阅读笔记</span> Rust 程序设计 · 3d前</div></div>
+        <div class="nl-item"><div class="nl-item__title">分布式系统的挑战</div><div class="nl-item__preview">分布式系统中最难处理的是部分失败和网络分区问题...</div><div class="nl-item__meta"><span class="nb nb-t">技术</span> DDIA · 5d前</div></div>
+        <div class="nl-item"><div class="nl-item__title">周末读书随想</div><div class="nl-item__preview">今天读完了《设计数据密集型应用》的第一部分...</div><div class="nl-item__meta"><span class="nb nb-l">随笔</span> 1w前</div></div>
+      </div>
+    </div>
+
+    <div class="note-editor">
+      <div class="ne-topbar">
+        <button class="ne-btn"><i data-lucide="bold"></i></button>
+        <button class="ne-btn"><i data-lucide="italic"></i></button>
+        <button class="ne-btn"><i data-lucide="underline"></i></button>
+        <div class="ne-divider"></div>
+        <button class="ne-btn"><i data-lucide="list"></i></button>
+        <button class="ne-btn"><i data-lucide="list-ordered"></i></button>
+        <div class="ne-divider"></div>
+        <button class="ne-btn"><i data-lucide="quote"></i></button>
+        <button class="ne-btn"><i data-lucide="code"></i></button>
+      </div>
+      <input class="ne-title" type="text" placeholder="笔记标题..." value="注意力机制的理解与思考" />
+      <textarea class="ne-body" placeholder="开始书写...">注意力机制的本质是让模型学会关注输入序列中重要的部分，而不是平均对待每一个元素。
+
+## 核心思想
+- 通过 query、key、value 的机制计算注意力权重
+- 权重越高，模型对该位置的关注度越大
+
+## 常见类型
+1. 加性注意力 — 使用前馈网络计算注意力分数
+2. 乘性注意力 — 使用点积计算，效率更高
+3. 自注意力 — Transformer 的核心机制</textarea>
+      <div class="ne-footer">
+        <span>最后编辑：2 小时前 · 来自「深度学习入门」</span>
+        <div class="ne-footer__actions">
+          <button class="ne-footer__btn">从批注生成</button>
+          <button class="ne-footer__btn">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    lucide.createIcons();
+    document.getElementById('themeToggle').addEventListener('click', () => document.body.classList.toggle('theme-digital'));
+    document.getElementById('sidebarToggle').addEventListener('click', () => document.body.classList.toggle('sidebar-collapsed'));
+  </script>
+</body>
+</html>

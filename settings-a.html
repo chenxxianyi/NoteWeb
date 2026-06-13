@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoteWeb · 设置 — 纸书质感</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Noto+Serif+SC:wght@400;500;600&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg-page: #F5F0EB; --bg-card: #FAF8F5; --bg-sidebar: #F0EAE3;
+      --text-primary: #3D2E24; --text-secondary: #8B7A6B; --text-muted: #B8A99A;
+      --accent: #C67A4E; --accent-hover: #B06A40; --accent-light: #F0E6DC;
+      --border-color: #E4D9CE;
+      --font-display: 'EB Garamond', 'Noto Serif SC', serif;
+      --font-body: 'Noto Serif SC', 'Inter', serif;
+      --font-ui: 'Inter', sans-serif;
+      --radius: 8px; --radius-lg: 12px;
+      --sidebar-w: 68px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: var(--font-body); background: var(--bg-page); color: var(--text-primary);
+      min-height:100vh; display:flex; overflow-x:hidden;
+      background-image: repeating-linear-gradient(0deg,transparent,transparent 1px,rgba(0,0,0,0.005) 1px,rgba(0,0,0,0.005) 2px);
+    }
+    .sidebar { width:var(--sidebar-w); background:var(--bg-sidebar); border-right:1px solid var(--border-color); display:flex; flex-direction:column; align-items:center; padding:1.2rem 0; position:fixed; top:0; left:0; bottom:0; z-index:10; }
+    .sidebar__logo { font-family:var(--font-display); font-size:1.3rem; color:var(--accent); margin-bottom:2rem; }
+    .sidebar__nav { display:flex; flex-direction:column; gap:0.3rem; flex:1; }
+    .sidebar__item { width:44px; height:44px; border-radius:var(--radius); display:flex; align-items:center; justify-content:center; color:var(--text-muted); text-decoration:none; transition:all 0.15s; position:relative; }
+    .sidebar__item:hover, .sidebar__item.active { color:var(--accent); background:var(--accent-light); }
+    .sidebar__item i { width:22px; height:22px; }
+    .sidebar__item .tooltip { position:absolute; left:calc(100% + 10px); top:50%; transform:translateY(-50%); background:var(--text-primary); color:#fff; font-family:var(--font-ui); font-size:0.75rem; padding:0.25rem 0.6rem; border-radius:4px; white-space:nowrap; opacity:0; pointer-events:none; }
+    .sidebar__item:hover .tooltip { opacity:1; }
+    .sidebar__avatar { width:36px; height:36px; border-radius:50%; background:var(--accent-light); border:2px solid var(--border-color); display:flex; align-items:center; justify-content:center; color:var(--accent); font-family:var(--font-ui); font-size:0.8rem; cursor:pointer; }
+
+    .main { margin-left:var(--sidebar-w); flex:1; padding:2rem; display:flex; justify-content:center; min-width:0; }
+    .main-inner { width:100%; max-width:800px; }
+
+    .page-title { font-family:var(--font-display); font-size:1.6rem; font-weight:500; margin-bottom:2rem; }
+
+    .section { margin-bottom:2rem; }
+    .section__title { font-family:var(--font-display); font-size:1.1rem; font-weight:500; margin-bottom:1rem; color:var(--text-primary); }
+    .section__card { background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); overflow:hidden; }
+
+    .setting-item { display:flex; align-items:center; padding:1rem 1.25rem; border-bottom:1px solid var(--border-color); gap:1rem; }
+    .setting-item:last-child { border-bottom:none; }
+    .setting-item__icon { width:40px; height:40px; border-radius:8px; background:var(--accent-light); display:flex; align-items:center; justify-content:center; color:var(--accent); flex-shrink:0; }
+    .setting-item__icon i { width:20px; height:20px; }
+    .setting-item__info { flex:1; min-width:0; }
+    .setting-item__label { font-size:0.9rem; font-weight:500; color:var(--text-primary); }
+    .setting-item__desc { font-family:var(--font-ui); font-size:0.75rem; color:var(--text-muted); margin-top:0.15rem; }
+    .setting-item__action { flex-shrink:0; }
+
+    .input { padding:0.5rem 0.8rem; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-page); font-family:var(--font-ui); font-size:0.85rem; color:var(--text-primary); outline:none; width:200px; }
+    .input:focus { border-color:var(--accent); }
+    .input--long { width:260px; }
+
+    .btn { padding:0.4rem 1rem; border:1px solid var(--border-color); border-radius:20px; background:var(--bg-card); font-family:var(--font-ui); font-size:0.8rem; color:var(--text-secondary); cursor:pointer; transition:all 0.12s; }
+    .btn:hover { border-color:var(--accent); color:var(--accent); }
+    .btn--primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .btn--primary:hover { background:var(--accent-hover); }
+
+    .toggle { position:relative; width:40px; height:22px; background:var(--border-color); border-radius:11px; cursor:pointer; transition:background 0.2s; }
+    .toggle.active { background:var(--accent); }
+    .toggle::after { content:''; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff; transition:transform 0.2s; }
+    .toggle.active::after { transform:translateX(18px); }
+
+    .progress-bar { height:6px; background:var(--border-color); border-radius:3px; overflow:hidden; width:200px; }
+    .progress-bar__fill { height:100%; background:var(--accent); border-radius:3px; }
+
+    .avatar-upload { width:64px; height:64px; border-radius:50%; background:var(--accent-light); display:flex; align-items:center; justify-content:center; color:var(--accent); cursor:pointer; position:relative; overflow:hidden; }
+    .avatar-upload i { width:28px; height:28px; }
+    .avatar-upload:hover::after { content:'更换'; position:absolute; inset:0; background:rgba(0,0,0,0.4); color:#fff; display:flex; align-items:center; justify-content:center; font-family:var(--font-ui); font-size:0.7rem; }
+
+    @media (max-width: 640px) {
+      .main { padding:1.2rem; }
+      .setting-item { flex-wrap:wrap; }
+      .setting-item__action { width:100%; }
+      .input, .input--long { width:100%; }
+      .progress-bar { width:100%; }
+    }
+    @media (max-width: 520px) {
+      :root { --sidebar-w:0px; }
+      .sidebar { display:none; }
+      .main { margin-left:0; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="sidebar">
+    <a href="#" class="sidebar__logo">N</a>
+    <div class="sidebar__nav">
+      <a href="#" class="sidebar__item"><i data-lucide="home"></i><span class="tooltip">仪表盘</span></a>
+      <a href="#" class="sidebar__item"><i data-lucide="file-text"></i><span class="tooltip">文件库</span></a>
+      <a href="#" class="sidebar__item"><i data-lucide="book-open"></i><span class="tooltip">阅读器</span></a>
+      <a href="#" class="sidebar__item"><i data-lucide="pen-square"></i><span class="tooltip">笔记</span></a>
+      <a href="#" class="sidebar__item active"><i data-lucide="settings"></i><span class="tooltip">设置</span></a>
+    </div>
+    <div class="sidebar__avatar">M</div>
+  </nav>
+
+  <div class="main">
+    <div class="main-inner">
+      <h1 class="page-title">设置</h1>
+
+      <!-- Profile -->
+      <div class="section">
+        <h2 class="section__title">用户资料</h2>
+        <div class="section__card">
+          <div class="setting-item">
+            <div class="avatar-upload"><i data-lucide="user"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">头像</div>
+              <div class="setting-item__desc">支持 JPG / PNG，建议 256×256</div>
+            </div>
+            <button class="btn">上传头像</button>
+          </div>
+          <div class="setting-item">
+            <div class="setting-item__icon"><i data-lucide="user"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">用户名</div>
+              <div class="setting-item__desc">你的显示名称</div>
+            </div>
+            <input class="input" type="text" value="小明" />
+          </div>
+          <div class="setting-item">
+            <div class="setting-item__icon"><i data-lucide="mail"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">邮箱</div>
+              <div class="setting-item__desc">用于登录和通知</div>
+            </div>
+            <input class="input input--long" type="email" value="xiaoming@email.com" />
+          </div>
+          <div class="setting-item" style="border-bottom:none;">
+            <div class="setting-item__icon"><i data-lucide="lock"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">密码</div>
+              <div class="setting-item__desc">********</div>
+            </div>
+            <button class="btn">修改密码</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Appearance -->
+      <div class="section">
+        <h2 class="section__title">外观</h2>
+        <div class="section__card">
+          <div class="setting-item">
+            <div class="setting-item__icon"><i data-lucide="palette"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">主题</div>
+              <div class="setting-item__desc">纸书质感 · 适合长时间阅读</div>
+            </div>
+            <div style="display:flex;gap:0.4rem;">
+              <button class="btn btn--primary" style="border-radius:50%;width:32px;height:32px;padding:0;background:#C67A4E;border-color:#C67A4E;"></button>
+              <button class="btn" style="border-radius:50%;width:32px;height:32px;padding:0;background:#2563EB;border-color:#2563EB;"></button>
+              <button class="btn" style="border-radius:50%;width:32px;height:32px;padding:0;background:#1E293B;border-color:#1E293B;"></button>
+            </div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-item__icon"><i data-lucide="font"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">字体</div>
+              <div class="setting-item__desc">正文使用衬线字体，更适合阅读</div>
+            </div>
+            <select class="input" style="width:140px;cursor:pointer;">
+              <option>Noto Serif SC</option>
+              <option>思源宋体</option>
+              <option>Inter</option>
+            </select>
+          </div>
+          <div class="setting-item" style="border-bottom:none;">
+            <div class="setting-item__icon"><i data-lucide="sun"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">阅读模式</div>
+              <div class="setting-item__desc">开启后阅读器背景模拟纸质书质感</div>
+            </div>
+            <div class="toggle active"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Storage -->
+      <div class="section">
+        <h2 class="section__title">存储空间</h2>
+        <div class="section__card">
+          <div class="setting-item">
+            <div class="setting-item__icon"><i data-lucide="hard-drive"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">已用空间</div>
+              <div class="setting-item__desc">52.8 MB / 1 GB</div>
+            </div>
+            <div class="progress-bar"><div class="progress-bar__fill" style="width:5.2%"></div></div>
+          </div>
+          <div class="setting-item" style="border-bottom:none;">
+            <div class="setting-item__icon"><i data-lucide="file-text"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">文档数量</div>
+              <div class="setting-item__desc">12 个文件 · 8 篇笔记 · 47 条批注</div>
+            </div>
+            <button class="btn">导出数据</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI -->
+      <div class="section">
+        <h2 class="section__title">AI 配置</h2>
+        <div class="section__card">
+          <div class="setting-item">
+            <div class="setting-item__icon"><i data-lucide="cpu"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">AI 提供商</div>
+              <div class="setting-item__desc">选择 AI 阅读助手的后端服务</div>
+            </div>
+            <select class="input" style="width:160px;cursor:pointer;">
+              <option>Mock API</option>
+              <option>OpenAI</option>
+              <option>DeepSeek</option>
+              <option>自定义</option>
+            </select>
+          </div>
+          <div class="setting-item" style="border-bottom:none;">
+            <div class="setting-item__icon"><i data-lucide="key"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label">API Key</div>
+              <div class="setting-item__desc">暂不填则使用 Mock 服务</div>
+            </div>
+            <input class="input input--long" type="password" value="sk-xxxxxxxxxxxxxxxx" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Danger Zone -->
+      <div class="section">
+        <h2 class="section__title" style="color:#DC2626;">危险操作</h2>
+        <div class="section__card" style="border-color:#FECACA;">
+          <div class="setting-item" style="border-bottom:none;">
+            <div class="setting-item__icon" style="background:#FEE2E2;color:#DC2626;"><i data-lucide="trash-2"></i></div>
+            <div class="setting-item__info">
+              <div class="setting-item__label" style="color:#DC2626;">删除账号</div>
+              <div class="setting-item__desc">删除所有数据，此操作不可撤销</div>
+            </div>
+            <button class="btn" style="border-color:#FECACA;color:#DC2626;">删除账号</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

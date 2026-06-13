@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NoteWeb · 设置</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg-page: #F1F5F9; --bg-card: #FFFFFF; --bg-sidebar: #0F172A;
+      --text-primary: #1E293B; --text-secondary: #64748B; --text-muted: #94A3B8;
+      --accent: #2563EB; --accent-hover: #1D4ED8; --accent-light: #EFF6FF;
+      --border-color: #E2E8F0; --shadow: 0 1px 2px rgba(0,0,0,0.05);
+      --radius: 6px; --radius-lg: 8px;
+      --sidebar-w: 240px; --font-sans: 'Inter', 'Noto Sans SC', sans-serif;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:var(--font-sans); background:var(--bg-page); color:var(--text-primary); min-height:100vh; display:flex; overflow-x:hidden; }
+
+    .sidebar { width:var(--sidebar-w); background:var(--bg-sidebar); display:flex; flex-direction:column; position:fixed; top:0; left:0; bottom:0; z-index:10; }
+    .sidebar__brand { padding:1.5rem 1.25rem; border-bottom:1px solid rgba(255,255,255,0.06); }
+    .sidebar__brand h1 { font-size:1.25rem; font-weight:700; color:#fff; letter-spacing:-0.02em; }
+    .sidebar__brand span { font-size:0.75rem; color:rgba(255,255,255,0.35); display:block; margin-top:0.2rem; }
+    .sidebar__nav { flex:1; padding:0.75rem; display:flex; flex-direction:column; gap:0.15rem; }
+    .sidebar__item { display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.75rem; border-radius:var(--radius); color:rgba(255,255,255,0.6); text-decoration:none; font-size:0.85rem; font-weight:500; transition:all 0.12s; }
+    .sidebar__item:hover { background:rgba(255,255,255,0.06); color:#fff; }
+    .sidebar__item.active { background:var(--accent); color:#fff; }
+    .sidebar__item i { width:18px; height:18px; flex-shrink:0; }
+    .sidebar__user { padding:0.75rem; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; gap:0.6rem; color:rgba(255,255,255,0.6); font-size:0.8rem; }
+    .sidebar__user-av { width:32px; height:32px; border-radius:50%; background:var(--accent); display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.75rem; font-weight:600; }
+
+    .main { margin-left:var(--sidebar-w); flex:1; padding:1.5rem 2rem; max-width:960px; min-width:0; }
+    .page-title { font-size:1.35rem; font-weight:600; margin-bottom:1.5rem; }
+
+    .section { margin-bottom:1.5rem; }
+    .section__title { font-size:0.75rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:0.6rem; }
+
+    .card { background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow); }
+    .row { display:flex; align-items:center; padding:0.75rem 1rem; border-bottom:1px solid var(--border-color); gap:0.75rem; }
+    .row:last-child { border-bottom:none; }
+    .row__icon { width:34px; height:34px; border-radius:6px; background:var(--accent-light); display:flex; align-items:center; justify-content:center; color:var(--accent); flex-shrink:0; }
+    .row__icon i { width:17px; height:17px; }
+    .row__body { flex:1; min-width:0; }
+    .row__label { font-size:0.85rem; font-weight:500; color:var(--text-primary); }
+    .row__desc { font-size:0.72rem; color:var(--text-muted); margin-top:0.1rem; }
+    .row__right { flex-shrink:0; display:flex; align-items:center; gap:0.5rem; }
+
+    .input { padding:0.4rem 0.7rem; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-page); font-family:var(--font-sans); font-size:0.82rem; color:var(--text-primary); outline:none; width:180px; }
+    .input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
+    .input--w { width:240px; }
+
+    .btn { height:32px; padding:0 0.8rem; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-card); font-family:var(--font-sans); font-size:0.78rem; color:var(--text-secondary); cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem; transition:all 0.12s; }
+    .btn:hover { border-color:var(--accent); color:var(--accent); }
+    .btn--primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .btn--primary:hover { background:var(--accent-hover); }
+    .btn--danger { border-color:#FECACA; color:#DC2626; }
+    .btn--danger:hover { background:#FEF2F2; }
+
+    .toggle { position:relative; width:36px; height:20px; background:var(--border-color); border-radius:10px; cursor:pointer; transition:background 0.2s; flex-shrink:0; }
+    .toggle.active { background:var(--accent); }
+    .toggle::after { content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:transform 0.2s; }
+    .toggle.active::after { transform:translateX(16px); }
+
+    .progress { display:flex; align-items:center; gap:0.5rem; }
+    .progress__bar { width:140px; height:6px; background:var(--border-color); border-radius:3px; overflow:hidden; }
+    .progress__fill { height:100%; background:var(--accent); border-radius:3px; }
+    .progress__text { font-size:0.72rem; color:var(--text-muted); white-space:nowrap; }
+
+    .color-dot { width:28px; height:28px; border-radius:50%; border:2px solid transparent; cursor:pointer; transition:border-color 0.1s; }
+    .color-dot:hover, .color-dot.active { border-color:var(--accent); }
+
+    .select { padding:0.4rem 0.7rem; border:1px solid var(--border-color); border-radius:var(--radius); background:var(--bg-card); font-family:var(--font-sans); font-size:0.82rem; color:var(--text-primary); outline:none; cursor:pointer; }
+
+    @media (max-width: 640px) {
+      .main { padding:1rem; }
+      .row { flex-wrap:wrap; }
+      .row__right { width:100%; justify-content:flex-start; }
+      .input, .input--w { width:100%; }
+    }
+    @media (max-width: 520px) {
+      :root { --sidebar-w:0px; }
+      .sidebar { display:none; }
+      .main { margin-left:0; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="sidebar__brand"><h1>NoteWeb</h1><span>知识型阅读工作台</span></div>
+    <div class="sidebar__nav">
+      <a href="#" class="sidebar__item"><i data-lucide="layout-dashboard"></i> 仪表盘</a>
+      <a href="#" class="sidebar__item"><i data-lucide="file-text"></i> 文件库 <span class="badge" style="margin-left:auto;background:rgba(255,255,255,0.1);padding:0.1rem 0.45rem;border-radius:10px;font-size:0.7rem;color:rgba(255,255,255,0.7);">12</span></a>
+      <a href="#" class="sidebar__item"><i data-lucide="book-open"></i> 阅读器</a>
+      <a href="#" class="sidebar__item"><i data-lucide="pen-square"></i> 笔记 <span class="badge" style="margin-left:auto;background:rgba(255,255,255,0.1);padding:0.1rem 0.45rem;border-radius:10px;font-size:0.7rem;color:rgba(255,255,255,0.7);">8</span></a>
+      <a href="#" class="sidebar__item active"><i data-lucide="settings"></i> 设置</a>
+    </div>
+    <div class="sidebar__user"><div class="sidebar__user-av">M</div><div><div style="color:#fff;font-weight:500;">小明</div><div style="font-size:0.7rem;color:rgba(255,255,255,0.35);">xiaoming@email.com</div></div></div>
+  </nav>
+
+  <div class="main">
+    <h1 class="page-title">设置</h1>
+
+    <div class="section">
+      <div class="section__title">用户资料</div>
+      <div class="card">
+        <div class="row"><div class="row__icon"><i data-lucide="user"></i></div><div class="row__body"><div class="row__label">头像</div><div class="row__desc">JPG / PNG, Max 2MB</div></div><div class="row__right"><div style="width:40px;height:40px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;color:var(--accent);cursor:pointer;"><i data-lucide="camera" style="width:18px;height:18px;"></i></div></div></div>
+        <div class="row"><div class="row__icon"><i data-lucide="user"></i></div><div class="row__body"><div class="row__label">用户名</div></div><div class="row__right"><input class="input" value="小明" /></div></div>
+        <div class="row"><div class="row__icon"><i data-lucide="mail"></i></div><div class="row__body"><div class="row__label">邮箱</div></div><div class="row__right"><input class="input input--w" value="xiaoming@email.com" /></div></div>
+        <div class="row"><div class="row__icon"><i data-lucide="lock"></i></div><div class="row__body"><div class="row__label">密码</div><div class="row__desc">最后修改于 2025-01-15</div></div><div class="row__right"><button class="btn">修改</button></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section__title">外观</div>
+      <div class="card">
+        <div class="row"><div class="row__icon"><i data-lucide="palette"></i></div><div class="row__body"><div class="row__label">主题色</div></div><div class="row__right"><div style="display:flex;gap:0.3rem;"><div class="color-dot active" style="background:#2563EB;"></div><div class="color-dot" style="background:#C67A4E;"></div><div class="color-dot" style="background:#1E293B;"></div><div class="color-dot" style="background:#10B981;"></div></div></div></div>
+        <div class="row"><div class="row__icon"><i data-lucide="font"></i></div><div class="row__body"><div class="row__label">字体</div></div><div class="row__right"><select class="select"><option>Inter (默认)</option><option>Noto Serif SC</option><option>JetBrains Mono</option></select></div></div>
+        <div class="row"><div class="row__icon"><i data-lucide="moon"></i></div><div class="row__body"><div class="row__label">深色模式</div><div class="row__desc">跟随系统</div></div><div class="row__right"><div class="toggle"></div></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section__title">存储</div>
+      <div class="card">
+        <div class="row"><div class="row__icon"><i data-lucide="hard-drive"></i></div><div class="row__body"><div class="row__label">存储空间</div><div class="row__desc">已用 52.8 MB / 共 1 GB</div></div><div class="row__right"><div class="progress"><div class="progress__bar"><div class="progress__fill" style="width:5.2%"></div></div><span class="progress__text">5.2%</span></div></div></div>
+        <div class="row"><div class="row__icon"><i data-lucide="file-text"></i></div><div class="row__body"><div class="row__label">数据概览</div><div class="row__desc">12 文档 · 8 笔记 · 47 批注</div></div><div class="row__right"><button class="btn"><i data-lucide="download" style="width:14px;height:14px;"></i> 导出</button></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section__title">AI 服务</div>
+      <div class="card">
+        <div class="row"><div class="row__icon"><i data-lucide="cpu"></i></div><div class="row__body"><div class="row__label">AI 提供商</div></div><div class="row__right"><select class="select"><option>Mock API</option><option>OpenAI</option><option>DeepSeek</option></select></div></div>
+        <div class="row"><div class="row__icon"><i data-lucide="key"></i></div><div class="row__body"><div class="row__label">API Key</div><div class="row__desc">留空则使用 Mock 服务</div></div><div class="row__right"><input class="input input--w" type="password" value="sk-xxxxxxxxxxxxxxxxxxxx" /></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section__title" style="color:#DC2626;">危险操作</div>
+      <div class="card" style="border-color:#FECACA;">
+        <div class="row"><div class="row__icon" style="background:#FEE2E2;color:#DC2626;"><i data-lucide="trash-2"></i></div><div class="row__body"><div class="row__label" style="color:#DC2626;">删除账号</div><div class="row__desc">删除所有数据，不可撤销</div></div><div class="row__right"><button class="btn btn--danger">删除账号</button></div></div>
+      </div>
+    </div>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>
