@@ -1,8 +1,10 @@
-"""NoteWeb Backend — FastAPI application entry point."""
+"""NoteWeb Backend - FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
+import os
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -28,7 +30,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend dev server
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    print(f"[REQUEST] {request.method} {request.url.path} from {request.client.host if request.client else 'unknown'}")
+    response = await call_next(request)
+    duration = time.time() - start_time
+    print(f"[RESPONSE] {request.method} {request.url.path} -> {response.status_code} ({duration:.3f}s)")
+    return response
+
+# CORS - allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,3 +59,8 @@ app.include_router(router)
 @app.get("/health")
 def health_check():
     return {"status": "ok", "app": settings.APP_NAME}
+
+
+@app.get("/__debug/ping")
+def debug_ping():
+    return {"status": "ok", "pid": os.getpid(), "app": settings.APP_NAME}

@@ -17,8 +17,6 @@ class AuthService:
             raise HTTPException(status_code=400, detail="Passwords do not match")
         if self.repo.get_by_email(email):
             raise HTTPException(status_code=400, detail="Email already registered")
-        if self.repo.get_by_username(username):
-            raise HTTPException(status_code=400, detail="Username already taken")
 
         pwd_hash = hash_password(password)
         user = self.repo.create(username, email, pwd_hash)

@@ -9,6 +9,10 @@ export function getDocument(id: number) {
   return request.get<Document>(`/documents/${id}`)
 }
 
+export function getDocumentContent(id: number) {
+  return request.get<{ content: string }>(`/documents/${id}/content`)
+}
+
 export function uploadDocument(file: File) {
   const form = new FormData()
   form.append('file', file)

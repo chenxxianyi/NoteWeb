@@ -7,21 +7,33 @@ export const useNoteStore = defineStore('note', () => {
   const notes = ref<Note[]>([])
   const currentNote = ref<Note | null>(null)
   const loading = ref(false)
+  const error = ref<string | null>(null)
 
   async function fetchNotes(params?: { document_id?: number; tag?: string }) {
     loading.value = true
+    error.value = null
     try {
       const res = await noteApi.getNotes(params)
       notes.value = res.data
+    } catch (e: any) {
+      error.value = e?.response?.data?.detail || e.message || '获取笔记列表失败'
+      notes.value = []
     } finally {
       loading.value = false
     }
   }
 
   async function fetchNote(id: number) {
-    const res = await noteApi.getNote(id)
-    currentNote.value = res.data
-    return res.data
+    error.value = null
+    try {
+      const res = await noteApi.getNote(id)
+      currentNote.value = res.data
+      return res.data
+    } catch (e: any) {
+      error.value = e?.response?.data?.detail || e.message || '获取笔记详情失败'
+      currentNote.value = null
+      throw e
+    }
   }
 
   async function create(data: Partial<Note>) {
@@ -45,5 +57,5 @@ export const useNoteStore = defineStore('note', () => {
     if (currentNote.value?.id === id) currentNote.value = null
   }
 
-  return { notes, currentNote, loading, fetchNotes, fetchNote, create, update, remove }
+  return { notes, currentNote, loading, error, fetchNotes, fetchNote, create, update, remove }
 })

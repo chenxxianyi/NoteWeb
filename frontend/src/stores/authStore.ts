@@ -11,14 +11,12 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string) {
     loading.value = true
     try {
-      // Try real API first
       const res = await authApi.login({ email, password })
       token.value = res.data.token
       user.value = res.data.user
       localStorage.setItem('token', res.data.token)
-    } catch {
-      // Fall back to demo mode when backend is unavailable
-      demoLogin()
+    } catch (e: any) {
+      throw e
     } finally {
       loading.value = false
     }
@@ -33,46 +31,18 @@ export const useAuthStore = defineStore('auth', () => {
         password,
         confirm_password: confirmPassword,
       })
-      token.value = res.data.token
-      user.value = res.data.user
-      localStorage.setItem('token', res.data.token)
-    } catch {
-      demoLogin(username)
+      return res.data
+    } catch (e: any) {
+      throw e
     } finally {
       loading.value = false
     }
   }
 
-  function demoLogin(name?: string) {
-    const demoToken = 'demo-token-noteweb-' + Date.now()
-    token.value = demoToken
-    user.value = {
-      id: 1,
-      username: name || '小明',
-      email: 'demo@noteweb.app',
-      storage_used: 52.8 * 1024 * 1024,
-      storage_limit: 1024 * 1024 * 1024,
-    }
-    localStorage.setItem('token', demoToken)
-  }
-
   async function fetchUser() {
     if (!token.value) return
-    try {
-      const res = await authApi.getMe()
-      user.value = res.data
-    } catch {
-      // In demo mode, set a mock user if not already set
-      if (!user.value) {
-        user.value = {
-          id: 1,
-          username: '小明',
-          email: 'demo@noteweb.app',
-          storage_used: 52.8 * 1024 * 1024,
-          storage_limit: 1024 * 1024 * 1024,
-        }
-      }
-    }
+    const res = await authApi.getMe()
+    user.value = res.data
   }
 
   function logout() {

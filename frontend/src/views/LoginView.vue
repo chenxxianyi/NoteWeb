@@ -14,6 +14,44 @@ const confirmPassword = ref('')
 const loading = ref(false)
 const errorMsg = ref('')
 
+// 后端英文错误 → 中文提示映射
+const errorMessages: Record<string, string> = {
+  'Invalid email or password': '邮箱或密码错误',
+  'Email already registered': '该邮箱已被注册',
+  'Username already taken': '该用户名已被使用',
+  'Passwords do not match': '两次密码不一致',
+  'Invalid or expired token': '登录已过期，请重新登录',
+  'Not authenticated': '未登录，请先登录',
+  'Not Found': '接口地址不存在',
+  'Internal Server Error': '服务器内部错误，请稍后重试',
+}
+
+function translateError(err: any): string {
+  // 1. 优先取后端 detail 字段
+  const detail = err.response?.data?.detail
+  if (detail && typeof detail === 'string') {
+    const cn = errorMessages[detail]
+    if (cn) return cn
+    // 如果后端返回了不在映射表里的英文，简短转中文
+    if (/^[A-Z]/.test(detail)) return detail
+    return detail
+  }
+
+  // 2. 网络错误（后端没响应）
+  if (err.code === 'ERR_NETWORK') return '无法连接到服务器，请检查后端是否启动'
+  if (err.code === 'ECONNABORTED') return '请求超时，请重试'
+
+  // 3. HTTP 状态码兜底
+  const status = err.response?.status
+  if (status === 401) return '邮箱或密码错误'
+  if (status === 403) return '没有权限执行此操作'
+  if (status === 404) return '请求的资源不存在'
+  if (status >= 500) return '服务器内部错误，请稍后重试'
+
+  // 4. 最后兜底
+  return '操作失败，请重试'
+}
+
 function toggleMode() {
   isLogin.value = !isLogin.value
   errorMsg.value = ''
@@ -25,6 +63,7 @@ async function handleSubmit() {
   try {
     if (isLogin.value) {
       await authStore.login(email.value, password.value)
+      router.push('/dashboard')
     } else {
       if (password.value !== confirmPassword.value) {
         errorMsg.value = '两次密码不一致'
@@ -32,10 +71,18 @@ async function handleSubmit() {
         return
       }
       await authStore.register(username.value, email.value, password.value, confirmPassword.value)
+      // 注册成功后：显示成功消息 → 清空表单 → 切换到登录模式
+      errorMsg.value = ''
+      alert('注册成功！请使用你的邮箱和密码登录。')
+      email.value = email.value
+      password.value = ''
+      username.value = ''
+      confirmPassword.value = ''
+      isLogin.value = true
     }
-    router.push('/dashboard')
   } catch (e: any) {
-    errorMsg.value = e.response?.data?.detail || e.message || '操作失败，请重试'
+    console.error('[LoginView] 操作失败:', e)
+    errorMsg.value = translateError(e)
   } finally {
     loading.value = false
   }
@@ -70,7 +117,7 @@ async function handleSubmit() {
       <!-- Form -->
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
-          <label for="email">邮箱 / 用户名</label>
+          <label for="email">{{ isLogin ? '邮箱 / 用户名' : '邮箱' }}</label>
           <input
             id="email"
             v-model="email"
@@ -80,8 +127,22 @@ async function handleSubmit() {
             autocomplete="email"
           />
         </div>
+
+        <!-- 注册模式下的用户名（邮箱之后、密码之前） -->
+        <div v-if="!isLogin" class="form-group">
+          <label for="username">用户名</label>
+          <input
+            id="username"
+            v-model="username"
+            type="text"
+            class="form-input"
+            placeholder="给自己取个名字"
+            autocomplete="username"
+          />
+        </div>
+
         <div class="form-group">
-          <label for="password">密码</label>
+          <label for="password">{{ isLogin ? '密码' : '设置密码' }}</label>
           <input
             id="password"
             v-model="password"
@@ -92,31 +153,18 @@ async function handleSubmit() {
           />
         </div>
 
-        <!-- Register-only fields -->
-        <template v-if="!isLogin">
-          <div class="form-group">
-            <label for="username">用户名</label>
-            <input
-              id="username"
-              v-model="username"
-              type="text"
-              class="form-input"
-              placeholder="给自己取个名字"
-              autocomplete="username"
-            />
-          </div>
-          <div class="form-group">
-            <label for="confirm-password">确认密码</label>
-            <input
-              id="confirm-password"
-              v-model="confirmPassword"
-              type="password"
-              class="form-input"
-              placeholder="再输一次"
-              autocomplete="new-password"
-            />
-          </div>
-        </template>
+        <!-- 注册模式下的确认密码 -->
+        <div v-if="!isLogin" class="form-group">
+          <label for="confirm-password">确认密码</label>
+          <input
+            id="confirm-password"
+            v-model="confirmPassword"
+            type="password"
+            class="form-input"
+            placeholder="再输一次"
+            autocomplete="new-password"
+          />
+        </div>
 
         <div v-if="errorMsg" class="form-error">{{ errorMsg }}</div>
 

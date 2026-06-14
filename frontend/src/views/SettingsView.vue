@@ -1,10 +1,32 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
+import { useAuthStore } from '../stores/authStore'
 
-const username = ref('小明')
-const email = ref('xiaoming@email.com')
+const authStore = useAuthStore()
+const username = computed(() => authStore.user?.username || '用户')
+const email = computed(() => authStore.user?.email || '—')
 const readingMode = ref(true)
+
+const storageUsed = computed(() => {
+  const bytes = authStore.user?.storage_used || 0
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${bytes} B`
+})
+
+const storageLimit = computed(() => {
+  const bytes = authStore.user?.storage_limit || 1073741824
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(0)} GB`
+  return `${(bytes / 1024 / 1024).toFixed(0)} MB`
+})
+
+const storagePercent = computed(() => {
+  const used = authStore.user?.storage_used || 0
+  const limit = authStore.user?.storage_limit || 1
+  return Math.min(100, Math.round((used / limit) * 100))
+})
 </script>
 
 <template>
@@ -35,7 +57,7 @@ const readingMode = ref(true)
                 <div class="setting-item__label">用户名</div>
                 <div class="setting-item__desc">你的显示名称</div>
               </div>
-              <input v-model="username" class="input" type="text" />
+              <input :value="username" class="input" type="text" readonly />
             </div>
             <div class="setting-item">
               <div class="setting-item__icon">
@@ -45,7 +67,7 @@ const readingMode = ref(true)
                 <div class="setting-item__label">邮箱</div>
                 <div class="setting-item__desc">用于登录和通知</div>
               </div>
-              <input v-model="email" class="input input--long" type="email" />
+              <input :value="email" class="input input--long" type="email" readonly />
             </div>
             <div class="setting-item" style="border-bottom:none;">
               <div class="setting-item__icon">
@@ -118,9 +140,9 @@ const readingMode = ref(true)
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">已用空间</div>
-                <div class="setting-item__desc">52.8 MB / 1 GB</div>
+                <div class="setting-item__desc">{{ storageUsed }} / {{ storageLimit }}</div>
               </div>
-              <div class="progress-bar"><div class="progress-bar__fill" style="width:5.2%"></div></div>
+              <div class="progress-bar"><div class="progress-bar__fill" :style="{ width: storagePercent + '%' }"></div></div>
             </div>
             <div class="setting-item" style="border-bottom:none;">
               <div class="setting-item__icon">
@@ -128,7 +150,7 @@ const readingMode = ref(true)
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">文档数量</div>
-                <div class="setting-item__desc">12 个文件 · 8 篇笔记 · 47 条批注</div>
+                <div class="setting-item__desc">—</div>
               </div>
               <button class="btn">导出数据</button>
             </div>
