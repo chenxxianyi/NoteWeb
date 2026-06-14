@@ -8,3 +8,17 @@ Thumbs.db
 .reasonix/desktop-*
 .reasonix/attachments/
 .codegraph/daemon.pid
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+noteweb.db
+*.db
+backend/.env
+venv/
+.venv/
+
+# Test artifacts
+backend/test_api.py
+backend/verify.py
