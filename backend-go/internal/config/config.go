@@ -30,7 +30,7 @@ func Load() *Config {
 		AppName:   getEnv("APP_NAME", "NoteWeb API"),
 		Env:       getEnv("ENV", "development"),
 		Debug:     getEnv("DEBUG", "true") == "true",
-		Port:      getEnvInt("PORT", 8000),
+		Port:      getEnvInt("PORT", 8020),
 		SecretKey: getEnv("SECRET_KEY", "change-me-in-production"),
 		AccessTokenExpireMinutes: getEnvInt("ACCESS_TOKEN_EXPIRE_MINUTES", 60*24),
 
