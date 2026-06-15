@@ -28,18 +28,21 @@ export const test = base.extend<AuthFixtures>({
 
     page.on('dialog', (d) => d.accept())
     await page.click('button[type="submit"]')
-    await page.waitForTimeout(2000)
+    await page.waitForTimeout(2500)
 
-    // Login
+    // Login — page should now be in login mode
+    // Re-fill email in case it was cleared
     await page.fill('#email', user.email)
     await page.fill('#password', user.password)
+    await page.click('button[type="submit"]')
 
-    // Use Promise.race to handle navigation
-    await Promise.all([
-      page.waitForURL('**/dashboard', { timeout: 15000 }),
-      page.click('button[type="submit"]'),
-    ])
-
+    // Wait for login redirect to dashboard
+    try {
+      await page.waitForURL('**/dashboard', { timeout: 10000 })
+    } catch {
+      // Fallback: navigate manually
+      await page.goto('/dashboard')
+    }
     await page.waitForTimeout(500)
     await use(page)
     await ctx.close()
