@@ -9,6 +9,8 @@ const searchQuery = ref('')
 const activeTag = ref('全部')
 const tags = ['全部', '阅读笔记', '技术', '随笔']
 const editting = ref({ title: '', content: '', tags: [] as string[] })
+const editTitle = ref('')
+const editContent = ref('')
 
 const filteredNotes = computed(() => {
   let list = noteStore.notes
@@ -26,6 +28,11 @@ const currentNote = computed(() => {
 
 function selectNote(id: number) {
   activeNoteId.value = id
+  const note = noteStore.notes.find((n) => n.id === id)
+  if (note) {
+    editTitle.value = note.title
+    editContent.value = note.content
+  }
   noteStore.fetchNote(id)
 }
 
@@ -45,13 +52,34 @@ function formatDate(dateStr: string): string {
 async function createNote() {
   try {
     await noteStore.create({ title: '新笔记', content: '', tags: ['阅读笔记'] })
-    activeNoteId.value = noteStore.notes[0]?.id || null
+    if (noteStore.notes.length > 0) {
+      const n = noteStore.notes[0]
+      activeNoteId.value = n.id
+      editTitle.value = n.title
+      editContent.value = n.content
+    }
   } catch {}
+}
+
+async function saveNote() {
+  if (!activeNoteId.value) return
+  try {
+    await noteStore.update(activeNoteId.value, {
+      title: editTitle.value,
+      content: editContent.value,
+    })
+  } catch (e: any) {
+    console.warn('保存失败:', e?.message || e)
+  }
 }
 
 onMounted(async () => {
   await noteStore.fetchNotes()
-  if (noteStore.notes.length > 0) activeNoteId.value = noteStore.notes[0].id
+  if (noteStore.notes.length > 0) {
+    activeNoteId.value = noteStore.notes[0].id
+    editTitle.value = noteStore.notes[0].title
+    editContent.value = noteStore.notes[0].content
+  }
 })
 </script>
 
@@ -94,12 +122,12 @@ onMounted(async () => {
           <button class="ne-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
           <button class="ne-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></button>
         </div>
-        <input class="ne-title" type="text" :value="currentNote.title" placeholder="笔记标题..." />
-        <textarea class="ne-body" :value="currentNote.content" placeholder="开始书写..."></textarea>
+        <input class="ne-title" type="text" v-model="editTitle" placeholder="笔记标题..." />
+        <textarea class="ne-body" v-model="editContent" placeholder="开始书写..."></textarea>
         <div class="ne-footer">
           <span>最后编辑：{{ formatDate(currentNote.updated_at) }}{{ currentNote.document_title ? ` · 来自「${currentNote.document_title}」` : '' }}</span>
           <div class="ne-footer__actions">
-            <button class="ne-footer__btn">保存</button>
+            <button class="ne-footer__btn" @click="saveNote">保存</button>
           </div>
         </div>
       </div>
