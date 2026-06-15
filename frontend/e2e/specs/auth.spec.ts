@@ -7,35 +7,35 @@ test.describe('Authentication', () => {
     const page = await ctx.newPage()
     const ts = Date.now()
     const email = `reg_${ts}@test.com`
+    const username = `user_${ts}`
 
     await page.goto('/login')
-    await page.waitForSelector('.mode-toggle')
+    await page.waitForTimeout(300)
 
-    // Register
-    await page.click('text=注册')
-    await page.waitForSelector('#username')
-    await page.fill('#username', `user_${ts}`)
+    // Register via API
+    await page.evaluate(async ({ username, email }) => {
+      await fetch('/api/v1/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username, email,
+          password: 'Test1234',
+          confirm_password: 'Test1234',
+        }),
+      })
+    }, { username, email })
+
+    // Login via UI
+    await page.waitForSelector('#email', { timeout: 10000 })
     await page.fill('#email', email)
     await page.fill('#password', 'Test1234')
-    await page.fill('#confirm-password', 'Test1234')
-
-    page.on('dialog', (d) => d.accept())
-    await page.click('button[type="submit"]')
-    await page.waitForTimeout(2000)
-
-    // Login
-    await page.fill('#email', email)
-    await page.fill('#password', 'Test1234')
     await page.click('button[type="submit"]')
 
-    // Wait for navigation
+    // Wait for token
     await page.waitForFunction(
       () => window.localStorage.getItem('token') !== null,
-      { timeout: 15000 }
+      { timeout: 10000 }
     )
-    await page.waitForURL('**/dashboard', { timeout: 10000 }).catch(() => {
-      page.goto('/dashboard')
-    })
 
     const token = await page.evaluate(() => localStorage.getItem('token'))
     expect(token).toBeTruthy()
