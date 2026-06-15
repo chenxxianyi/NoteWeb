@@ -13,7 +13,7 @@ const initial = computed(() => userName.value.charAt(0).toUpperCase())
 const navItems = [
   { label: '工作台', path: '/dashboard', icon: 'grid' },
   { label: '文件库', path: '/documents', icon: 'book' },
-  { label: '阅读器', path: '/documents', icon: 'book-open' },
+  { label: '阅读器', path: '/documents', icon: 'book-open', matchPrefix: '/reader' },
   { label: '笔记', path: '/notes', icon: 'edit' },
 ]
 
@@ -21,9 +21,9 @@ const bottomNav = [
   { label: '设置', path: '/settings', icon: 'settings' },
 ]
 
-function isActive(path: string): boolean {
-  if (path === '/documents') return route.path === '/documents'
-  return route.path.startsWith(path)
+function isActive(item: typeof navItems[0]): boolean {
+  if (item.matchPrefix) return route.path.startsWith(item.matchPrefix)
+  return route.path === item.path
 }
 
 function navigate(path: string) {
@@ -48,7 +48,7 @@ function logout() {
       <a
         v-for="item in navItems"
         :key="item.label"
-        :class="['sidebar__item', { active: isActive(item.path) }]"
+        :class="['sidebar__item', { active: isActive(item) }]"
         :href="item.path || '#'"
         @click.prevent="navigate(item.path)"
       >
