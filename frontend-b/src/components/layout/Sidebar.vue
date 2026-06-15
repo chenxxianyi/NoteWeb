@@ -7,13 +7,17 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
+// Import document store for reader navigation
+import { useDocumentStore } from '../../stores/documentStore'
+const documentStore = useDocumentStore()
+
 const userName = computed(() => authStore.user?.username || '用户')
 const initial = computed(() => userName.value.charAt(0).toUpperCase())
 
 const navItems = [
   { label: '工作台', path: '/dashboard', icon: 'grid' },
   { label: '文件库', path: '/documents', icon: 'book' },
-  { label: '阅读器', path: '/documents', icon: 'book-open', matchPrefix: '/reader' },
+  { label: '阅读器', path: '/documents', icon: 'book-open', matchPrefix: '/reader', openReader: true },
   { label: '笔记', path: '/notes', icon: 'edit' },
 ]
 
@@ -26,7 +30,24 @@ function isActive(item: typeof navItems[0]): boolean {
   return route.path === item.path
 }
 
-function navigate(path: string) {
+function navigate(path: string, openReader?: boolean) {
+  if (openReader) {
+    // Try to open the most recent document in reader
+    if (documentStore.documents.length > 0) {
+      const lastDoc = documentStore.documents[0]
+      router.push(`/reader/${lastDoc.id}`)
+    } else {
+      // Fetch documents first, then try again
+      documentStore.fetchDocuments().then(() => {
+        if (documentStore.documents.length > 0) {
+          router.push(`/reader/${documentStore.documents[0].id}`)
+        } else {
+          router.push('/documents')
+        }
+      })
+    }
+    return
+  }
   router.push(path)
 }
 
@@ -50,7 +71,7 @@ function logout() {
         :key="item.label"
         :class="['sidebar__item', { active: isActive(item) }]"
         :href="item.path || '#'"
-        @click.prevent="navigate(item.path)"
+        @click.prevent="navigate(item.path, item.openReader)"
       >
         <svg v-if="item.icon === 'grid'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
         <svg v-if="item.icon === 'book'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
