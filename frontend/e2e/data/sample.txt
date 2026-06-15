@@ -1,0 +1,6 @@
+This is a sample text file for E2E testing.
+It contains multiple lines of text.
+
+Line 3
+Line 4
+Line 5
