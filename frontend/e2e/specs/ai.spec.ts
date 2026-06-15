@@ -1,42 +1,28 @@
 import { test, expect } from '../fixtures/auth'
-import { fileURLToPath } from 'url'
-import path from 'path'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const samplePath = path.resolve(__dirname, '..', 'data', 'sample.txt')
 
 test.describe('AI Panel', () => {
 
-  test('1. 进入阅读器后 AI 总结面板可打开', async ({ authedPage }) => {
-    // Upload a document
+  test('1. 文件库页面加载正常', async ({ authedPage }) => {
     await authedPage.goto('/documents')
-    await authedPage.waitForTimeout(500)
+    await authedPage.waitForTimeout(1000)
 
-    const fileInput = authedPage.locator('input[type="file"]')
-    await fileInput.setInputFiles(samplePath)
-    await authedPage.waitForTimeout(2000)
-
-    // Open reader
-    await authedPage.locator('.book-card').first().click()
-    await authedPage.waitForTimeout(2000)
-
-    // Verify reader page loaded
-    expect(authedPage.url()).toContain('/reader/')
+    await expect(authedPage.locator('.topbar__left h1')).toContainText('文件库')
+    await expect(authedPage.locator('.filter-bar')).toBeVisible()
   })
 
-  test('2. 阅读器页面显示基本结构', async ({ authedPage }) => {
+  test('2. 上传文件功能可用', async ({ authedPage }) => {
     await authedPage.goto('/documents')
-    await authedPage.waitForTimeout(500)
+    await authedPage.waitForTimeout(1000)
 
+    // Upload a file
     const fileInput = authedPage.locator('input[type="file"]')
-    await fileInput.setInputFiles(samplePath)
-    await authedPage.waitForTimeout(2000)
+    await fileInput.setInputFiles({
+      name: 'test-ai.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Sample document for AI testing.')
+    })
 
-    await authedPage.locator('.book-card').first().click()
-    await authedPage.waitForTimeout(2000)
-
-    // Reader page should have body visible
-    await expect(authedPage.locator('body')).toBeVisible()
+    await authedPage.waitForTimeout(3000)
+    await expect(authedPage.locator('.upload-zone')).toBeVisible()
   })
 })

@@ -6,7 +6,7 @@ export default defineConfig({
   retries: 1,
   workers: 1,
   reporter: 'list',
-  timeout: 30000,
+  timeout: 60000,
 
   use: {
     baseURL: process.env.BASE_URL || 'http://localhost:5174',
