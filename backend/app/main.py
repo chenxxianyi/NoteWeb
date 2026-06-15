@@ -14,11 +14,10 @@ from app.api.v1.router import router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Auto-create tables for SQLite dev mode
-    if settings.DATABASE_URL and "sqlite" in settings.DATABASE_URL:
-        from app.db.base import Base
-        from app.db.session import engine
-        Base.metadata.create_all(bind=engine)
+    # Auto-create tables on startup (works with SQLite and MySQL dev)
+    from app.db.base import Base
+    from app.db.session import engine
+    Base.metadata.create_all(bind=engine)
     yield
 
 

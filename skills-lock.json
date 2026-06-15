@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "webapp-testing": {
+      "source": "AutumnsGrove/ClaudeSkills",
+      "sourceType": "github",
+      "skillPath": "webapp-testing/SKILL.md",
+      "computedHash": "7c934457c802afde9c334777c8508aa9a2c190b762bbb50bd79e8e188a6111d7"
+    }
+  }
+}
