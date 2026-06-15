@@ -13,7 +13,7 @@ const initial = computed(() => userName.value.charAt(0).toUpperCase())
 const navItems = [
   { label: '工作台', path: '/dashboard', icon: 'grid' },
   { label: '文件库', path: '/documents', icon: 'book' },
-  { label: '阅读器', path: null as string | null, icon: 'book-open' },
+  { label: '阅读器', path: '/documents', icon: 'book-open' },
   { label: '笔记', path: '/notes', icon: 'edit' },
 ]
 
@@ -21,13 +21,13 @@ const bottomNav = [
   { label: '设置', path: '/settings', icon: 'settings' },
 ]
 
-function isActive(path: string | null): boolean {
-  if (!path) return route.path.startsWith('/reader')
-  return route.path === path
+function isActive(path: string): boolean {
+  if (path === '/documents') return route.path === '/documents'
+  return route.path.startsWith(path)
 }
 
-function navigate(path: string | null) {
-  if (path) router.push(path)
+function navigate(path: string) {
+  router.push(path)
 }
 
 function logout() {
