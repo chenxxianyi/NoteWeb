@@ -14,6 +14,7 @@ const noteStore = useNoteStore()
 const annotationStore = useAnnotationStore()
 
 const loading = ref(true)
+const initialLoading = computed(() => documentStore.loading || noteStore.loading)
 
 const now = new Date()
 const hour = now.getHours()
@@ -64,17 +65,14 @@ const recentActivity = computed(() => {
   return items.slice(0, 6)
 })
 
-onMounted(async () => {
-  try {
-    await Promise.all([
-      documentStore.fetchDocuments(),
-      noteStore.fetchNotes(),
-      annotationStore.fetchAnnotations(0).catch(() => {}),
-    ])
-  } catch {
-    // silently handle
-  }
+onMounted(() => {
+  const requests = [
+    documentStore.fetchDocuments(),
+    noteStore.fetchNotes(),
+  ]
+
   loading.value = false
+  void Promise.allSettled(requests)
 })
 </script>
 
@@ -86,7 +84,7 @@ onMounted(async () => {
         <div class="topbar">
           <div class="topbar__greeting">
             <h1>{{ greeting }}好，{{ userName }}</h1>
-            <p v-if="!loading">共 {{ documentStore.documents.length }} 篇文档</p>
+            <p v-if="!initialLoading">共 {{ documentStore.documents.length }} 篇文档</p>
             <p v-else>加载中...</p>
           </div>
           <div class="topbar__actions">
@@ -131,7 +129,7 @@ onMounted(async () => {
         </div>
 
         <!-- Continue Reading -->
-        <div v-if="readingList.length > 0" class="timeline-wrap">
+        <div v-if="readingList.length > 0 || recentActivity.length > 0" class="timeline-wrap">
           <div class="timeline">
             <div class="timeline__header">
               <h2>继续阅读</h2>
@@ -182,6 +180,9 @@ onMounted(async () => {
           <div v-if="readingList.length === 0 && recentActivity.length === 0" class="empty-state">
             <p>暂无数据，上传你的第一篇文档开始吧</p>
           </div>
+        </div>
+        <div v-else-if="!initialLoading" class="empty-state">
+          <p>暂无数据，上传你的第一篇文档开始吧</p>
         </div>
       </div>
     </div>

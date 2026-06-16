@@ -14,7 +14,12 @@ class NoteService:
     def list_notes(self, user: User, document_id: int | None = None,
                    tag: str | None = None) -> list[dict]:
         notes = self.repo.list_by_user(user.id, document_id, tag)
-        return [self._to_dict(n) for n in notes]
+        doc_ids = {note.document_id for note in notes if note.document_id}
+        docs_by_id = {}
+        if doc_ids:
+            docs = self.doc_repo.list_by_ids(list(doc_ids), user.id)
+            docs_by_id = {doc.id: doc for doc in docs}
+        return [self._to_dict(n, docs_by_id) for n in notes]
 
     def get_note(self, note_id: int, user: User) -> dict:
         note = self.repo.get_by_id(note_id)
@@ -39,10 +44,10 @@ class NoteService:
             raise HTTPException(status_code=404, detail="Note not found")
         self.repo.soft_delete(note_id)
 
-    def _to_dict(self, note) -> dict:
+    def _to_dict(self, note, docs_by_id: dict[int, object] | None = None) -> dict:
         doc_title = None
-        if note.document_id:
-            doc = self.doc_repo.get_by_id(note.document_id)
+        if note.document_id and docs_by_id:
+            doc = docs_by_id.get(note.document_id)
             if doc:
                 doc_title = doc.title
 

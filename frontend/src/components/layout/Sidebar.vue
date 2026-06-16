@@ -5,7 +5,6 @@ import { computed } from 'vue'
 import {
   LayoutDashboard,
   FileText,
-  BookOpen,
   PenSquare,
   Settings,
 } from 'lucide-vue-next'
@@ -17,7 +16,6 @@ const authStore = useAuthStore()
 const iconMap: Record<string, any> = {
   'layout-dashboard': LayoutDashboard,
   'file-text': FileText,
-  'book-open': BookOpen,
   'pen-square': PenSquare,
   'settings': Settings,
 }
@@ -25,7 +23,6 @@ const iconMap: Record<string, any> = {
 const navItems = [
   { name: '仪表盘', icon: 'layout-dashboard', route: '/dashboard' },
   { name: '文件库', icon: 'file-text', route: '/documents' },
-  { name: '阅读器', icon: 'book-open', route: '/documents' },
   { name: '笔记', icon: 'pen-square', route: '/notes' },
   { name: '设置', icon: 'settings', route: '/settings' },
 ]

@@ -40,6 +40,7 @@ export const useNoteStore = defineStore('note', () => {
     const res = await noteApi.createNote(data)
     notes.value.unshift(res.data)
     currentNote.value = res.data
+    return res.data
   }
 
   async function update(id: number, data: Partial<Note>) {

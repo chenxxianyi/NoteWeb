@@ -16,8 +16,20 @@ class DocumentService:
     def __init__(self, db: Session):
         self.repo = DocumentRepository(db)
         self.user_repo = UserRepository(db)
-        self.storage = StorageService()
-        self.parser = FileParseService()
+        self._storage: StorageService | None = None
+        self._parser: FileParseService | None = None
+
+    @property
+    def storage(self) -> StorageService:
+        if self._storage is None:
+            self._storage = StorageService()
+        return self._storage
+
+    @property
+    def parser(self) -> FileParseService:
+        if self._parser is None:
+            self._parser = FileParseService()
+        return self._parser
 
     def list_documents(self, user: User, search: str = "", file_type: str = "",
                        page: int = 1, page_size: int = 50) -> list[dict]:

@@ -14,6 +14,19 @@ class DocumentRepository:
             .first()
         )
 
+    def list_by_ids(self, document_ids: list[int], user_id: int) -> list[Document]:
+        if not document_ids:
+            return []
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.id.in_(document_ids),
+                Document.user_id == user_id,
+                Document.deleted_at.is_(None),
+            )
+            .all()
+        )
+
     def list_by_user(
         self, user_id: int, search: str = "", file_type: str = "", skip: int = 0, limit: int = 50
     ) -> list[Document]:
