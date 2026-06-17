@@ -12,7 +12,6 @@ import (
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/models"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/repository"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/service"
-	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -25,7 +24,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("数据库连接失败: %v", err)
 	}
-	db.AutoMigrate(&models.User{}, &models.Document{}, &models.Annotation{}, &models.Note{})
+	if err := db.AutoMigrate(&models.User{}, &models.Document{}, &models.Annotation{}, &models.Note{}); err != nil {
+		log.Fatalf("数据库迁移失败: %v", err)
+	}
 
 	// Repositories
 	userRepo := repository.NewUserRepo(db)
@@ -94,15 +95,13 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("NoteWeb API 启动于 %s", addr)
-	r.Run(addr)
+	if err := r.Run(addr); err != nil {
+		log.Fatalf("服务启动失败: %v", err)
+	}
 }
 
 func initDB(cfg *config.Config) (*gorm.DB, error) {
-	dsn := cfg.DSN()
-	if cfg.DBDriver == "sqlite" {
-		return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	}
-	return gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	return gorm.Open(mysql.Open(cfg.DSN()), &gorm.Config{})
 }
 
 func init() {

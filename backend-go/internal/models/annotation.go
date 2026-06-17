@@ -11,7 +11,7 @@ type Annotation struct {
 	Color          string    `gorm:"size:32;default:'#FFD700'" json:"color"`
 	SelectedText   string    `gorm:"type:text" json:"selected_text"`
 	Note           string    `gorm:"type:text" json:"note"`
-	PositionData   string    `gorm:"type:text;default:'{}'" json:"position_data"`
+	PositionData   string    `gorm:"type:text" json:"position_data"`
 	DeletedAt      *time.Time `gorm:"index" json:"-"`
 	CreatedAt      time.Time  `json:"created_at"`
 }

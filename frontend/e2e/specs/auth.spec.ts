@@ -167,4 +167,19 @@ test.describe('Authentication', () => {
     await page.waitForURL('**/login', { timeout: 5000 })
     expect(page.url()).toContain('/login')
   })
+
+  test('8. register mode can reveal the first password only', async ({ page }) => {
+    await page.goto('/login')
+    await page.click('button:has-text("注册")')
+    await page.fill('#password', 'Test1234')
+    await page.fill('#confirm-password', 'Test1234')
+
+    await expect(page.locator('#password')).toHaveAttribute('type', 'password')
+    await expect(page.locator('#confirm-password')).toHaveAttribute('type', 'password')
+
+    await page.getByRole('button', { name: '显示密码' }).click()
+
+    await expect(page.locator('#password')).toHaveAttribute('type', 'text')
+    await expect(page.locator('#confirm-password')).toHaveAttribute('type', 'password')
+  })
 })

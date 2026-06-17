@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -14,8 +16,6 @@ type Config struct {
 	SecretKey string
 	AccessTokenExpireMinutes int
 
-	DBDriver string // "sqlite" or "mysql"
-	DBPath   string // for sqlite
 	MySQLHost     string
 	MySQLPort     int
 	MySQLUser     string
@@ -26,6 +26,8 @@ type Config struct {
 }
 
 func Load() *Config {
+	loadDotEnv(".env")
+
 	cfg := &Config{
 		AppName:   getEnv("APP_NAME", "NoteWeb API"),
 		Env:       getEnv("ENV", "development"),
@@ -33,9 +35,6 @@ func Load() *Config {
 		Port:      getEnvInt("PORT", 8020),
 		SecretKey: getEnv("SECRET_KEY", "change-me-in-production"),
 		AccessTokenExpireMinutes: getEnvInt("ACCESS_TOKEN_EXPIRE_MINUTES", 60*24),
-
-		DBDriver: getEnv("DB_DRIVER", "sqlite"),
-		DBPath:   getEnv("DB_PATH", "./noteweb.db"),
 
 		MySQLHost:     getEnv("MYSQL_HOST", "localhost"),
 		MySQLPort:     getEnvInt("MYSQL_PORT", 3306),
@@ -48,10 +47,35 @@ func Load() *Config {
 	return cfg
 }
 
-func (c *Config) DSN() string {
-	if c.DBDriver == "sqlite" {
-		return c.DBPath
+func loadDotEnv(path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		return
 	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		value = strings.Trim(value, `"'`)
+		if key == "" || os.Getenv(key) != "" {
+			continue
+		}
+		_ = os.Setenv(key, value)
+	}
+}
+
+func (c *Config) DSN() string {
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		c.MySQLUser, c.MySQLPassword, c.MySQLHost, c.MySQLPort, c.MySQLDatabase)
 }

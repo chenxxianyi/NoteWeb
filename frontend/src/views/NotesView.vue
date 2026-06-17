@@ -11,7 +11,7 @@ const activeTag = ref('全部')
 const draftTitle = ref('')
 const draftContent = ref('')
 const saving = ref(false)
-const toast = ref('')
+const statusToast = ref<{ type: 'success' | 'error'; message: string } | null>(null)
 let toastTimer: number | null = null
 
 const tags = ['全部', '阅读笔记', '技术', '随笔']
@@ -68,15 +68,21 @@ async function saveNote() {
       content: draftContent.value,
       tags: currentNote.value.tags || [],
     })
-    toast.value = '笔记保存成功'
-    if (toastTimer) window.clearTimeout(toastTimer)
-    toastTimer = window.setTimeout(() => {
-      toast.value = ''
-      toastTimer = null
-    }, 2000)
+    showStatusToast('success', '笔记保存成功')
+  } catch (e: any) {
+    showStatusToast('error', e?.response?.data?.detail || e?.message || '保存失败')
   } finally {
     saving.value = false
   }
+}
+
+function showStatusToast(type: 'success' | 'error', message: string) {
+  statusToast.value = { type, message }
+  if (toastTimer) window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => {
+    statusToast.value = null
+    toastTimer = null
+  }, 2000)
 }
 
 function formatDate(dateStr?: string): string {
@@ -110,7 +116,9 @@ onMounted(async () => {
 <template>
   <AppLayout>
     <div class="notes-page">
-      <div v-if="toast" class="note-toast">{{ toast }}</div>
+      <div v-if="statusToast" :class="['note-toast', `note-toast--${statusToast.type}`]">
+        {{ statusToast.message }}
+      </div>
 
       <div class="note-list">
         <div class="nl-header">
@@ -185,7 +193,9 @@ onMounted(async () => {
 
 <style scoped>
 .notes-page { display: flex; height: 100vh; overflow: hidden; }
-.note-toast { position: fixed; top: 1rem; right: 1.5rem; z-index: 200; padding: 0.55rem 0.85rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-card); color: var(--accent); box-shadow: 0 8px 24px rgba(61, 46, 36, 0.12); font-family: var(--font-ui); font-size: 0.82rem; }
+.note-toast { position: fixed; top: 4.55rem; left: 50%; z-index: 300; min-width: 180px; max-width: min(360px, calc(100vw - 2rem)); padding: 0.65rem 1rem; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-card); box-shadow: 0 10px 24px rgba(61, 46, 36, 0.14); font-family: var(--font-ui); font-size: 0.85rem; text-align: center; transform: translateX(-50%); }
+.note-toast--success { color: var(--accent); }
+.note-toast--error { color: #b42318; }
 
 .note-list { width: 340px; background: var(--bg-card); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; flex-shrink: 0; }
 .nl-header { padding: 1rem 1.2rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; }
@@ -230,5 +240,5 @@ onMounted(async () => {
 .ne-footer__btn:hover { border-color: var(--accent); color: var(--accent); }
 
 @media (max-width: 820px) { .note-list { width: 280px; } }
-@media (max-width: 620px) { .note-list { width: 100%; } .note-editor { display: none; } }
+@media (max-width: 620px) { .note-list { width: 100%; } .note-editor { display: none; } .note-toast { top: 3.75rem; } }
 </style>

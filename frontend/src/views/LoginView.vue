@@ -11,6 +11,7 @@ const email = ref('')
 const password = ref('')
 const username = ref('')
 const confirmPassword = ref('')
+const showRegisterPassword = ref(false)
 const loading = ref(false)
 const errorMsg = ref('')
 
@@ -55,6 +56,7 @@ function translateError(err: any): string {
 function toggleMode() {
   isLogin.value = !isLogin.value
   errorMsg.value = ''
+  showRegisterPassword.value = false
 }
 
 async function handleSubmit() {
@@ -143,14 +145,35 @@ async function handleSubmit() {
 
         <div class="form-group">
           <label for="password">{{ isLogin ? '密码' : '设置密码' }}</label>
-          <input
-            id="password"
-            v-model="password"
-            type="password"
-            class="form-input"
-            placeholder="········"
-            autocomplete="current-password"
-          />
+          <div :class="['password-field', { 'password-field--with-toggle': !isLogin }]">
+            <input
+              id="password"
+              v-model="password"
+              :type="!isLogin && showRegisterPassword ? 'text' : 'password'"
+              class="form-input"
+              placeholder="········"
+              :autocomplete="isLogin ? 'current-password' : 'new-password'"
+            />
+            <button
+              v-if="!isLogin"
+              type="button"
+              class="password-toggle"
+              :aria-label="showRegisterPassword ? '隐藏密码' : '显示密码'"
+              :aria-pressed="showRegisterPassword"
+              @click="showRegisterPassword = !showRegisterPassword"
+            >
+              <svg v-if="!showRegisterPassword" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2.25 12s3.5-6.5 9.75-6.5S21.75 12 21.75 12s-3.5 6.5-9.75 6.5S2.25 12 2.25 12Z" />
+                <circle cx="12" cy="12" r="2.75" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m3.75 4.25 16.5 15.5" />
+                <path d="M9.2 5.85A9.3 9.3 0 0 1 12 5.5c6.25 0 9.75 6.5 9.75 6.5a16.4 16.4 0 0 1-3.05 3.75" />
+                <path d="M14.1 14.3A2.75 2.75 0 0 1 9.7 9.9" />
+                <path d="M6.65 7.35A16.1 16.1 0 0 0 2.25 12s3.5 6.5 9.75 6.5c1.4 0 2.67-.32 3.78-.82" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <!-- 注册模式下的确认密码 -->
@@ -331,6 +354,48 @@ async function handleSubmit() {
 }
 .form-input:focus {
   border-bottom-color: var(--accent);
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field--with-toggle .form-input {
+  padding-right: 2.4rem;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 0;
+  bottom: 0.25rem;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+  color: var(--accent);
+  background: var(--accent-light);
+  outline: none;
+}
+
+.password-toggle svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .form-error {
