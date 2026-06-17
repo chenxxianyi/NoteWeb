@@ -3,12 +3,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import { useNoteStore } from '../stores/noteStore'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
+import { Node } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
 import {
+  AlertTriangle,
   Bold,
   CheckCircle2,
   ChevronRight,
@@ -17,6 +19,12 @@ import {
   Copy,
   Heading1,
   Heading2,
+  Heading3,
+  Heading4,
+  Heading5,
+  Heading6,
+  IndentDecrease,
+  IndentIncrease,
   Italic,
   Link as LinkIcon,
   List as ListIcon,
@@ -25,6 +33,8 @@ import {
   Pilcrow,
   Quote,
   Scissors,
+  Sigma,
+  Table2,
   Trash2,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
@@ -35,6 +45,9 @@ type ContextMenuItem = {
   icon?: Component
   disabled?: boolean
   hint?: string
+  shortcut?: string
+  separator?: boolean
+  child?: boolean
 }
 
 type ContextSubmenu = {
@@ -42,6 +55,54 @@ type ContextSubmenu = {
   label: string
   items: ContextMenuItem[]
 }
+
+type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
+
+const FormulaBlock = Node.create({
+  name: 'formulaBlock',
+  group: 'block',
+  content: 'text*',
+  defining: true,
+  parseHTML() {
+    return [{ tag: 'div[data-type="formula-block"]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', { ...HTMLAttributes, 'data-type': 'formula-block', class: 'formula-block' }, 0]
+  },
+})
+
+const CalloutBlock = Node.create({
+  name: 'calloutBlock',
+  group: 'block',
+  content: 'inline*',
+  defining: true,
+  parseHTML() {
+    return [{ tag: 'aside[data-type="callout-block"]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['aside', { ...HTMLAttributes, 'data-type': 'callout-block', class: 'callout-block' }, 0]
+  },
+})
+
+const SimpleTable = Node.create({
+  name: 'simpleTable',
+  group: 'block',
+  atom: true,
+  parseHTML() {
+    return [{ tag: 'table[data-type="simple-table"]' }]
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      'table',
+      { ...HTMLAttributes, 'data-type': 'simple-table', class: 'simple-table' },
+      ['tbody',
+        ['tr', ['td', ''], ['td', ''], ['td', '']],
+        ['tr', ['td', ''], ['td', ''], ['td', '']],
+        ['tr', ['td', ''], ['td', ''], ['td', '']],
+      ],
+    ]
+  },
+})
 
 const noteStore = useNoteStore()
 
@@ -56,6 +117,8 @@ const contextMenu = ref({
   open: false,
   x: 0,
   y: 0,
+  flyoutDirection: 'right' as 'left' | 'right',
+  flyoutMaxHeight: 320,
   activeSubmenu: '',
 })
 let toastTimer: number | null = null
@@ -115,10 +178,35 @@ const contextSubmenus: ContextSubmenu[] = [
     key: 'paragraph',
     label: '段落',
     items: [
-      { command: 'paragraph', label: '正文', icon: Pilcrow },
-      { command: 'heading1', label: '一级标题', icon: Heading1 },
-      { command: 'heading2', label: '二级标题', icon: Heading2 },
-      { command: 'quote', label: '引用', icon: Quote },
+      { command: 'heading1', label: '一级标题', icon: Heading1, shortcut: 'Ctrl+1' },
+      { command: 'heading2', label: '二级标题', icon: Heading2, shortcut: 'Ctrl+2' },
+      { command: 'heading3', label: '三级标题', icon: Heading3, shortcut: 'Ctrl+3' },
+      { command: 'heading4', label: '四级标题', icon: Heading4, shortcut: 'Ctrl+4' },
+      { command: 'heading5', label: '五级标题', icon: Heading5, shortcut: 'Ctrl+5' },
+      { command: 'heading6', label: '六级标题', icon: Heading6, shortcut: 'Ctrl+6' },
+      { label: '', separator: true },
+      { command: 'paragraph', label: '段落', icon: Pilcrow, shortcut: 'Ctrl+0' },
+      { label: '', separator: true },
+      { command: 'promoteHeading', label: '提升标题级别', icon: IndentDecrease, shortcut: 'Ctrl+=' },
+      { command: 'demoteHeading', label: '降低标题级别', icon: IndentIncrease, shortcut: 'Ctrl+-' },
+      { label: '', separator: true },
+      { command: 'insertTable', label: '表格', icon: Table2, child: true },
+      { command: 'formulaBlock', label: '公式块', icon: Sigma, shortcut: 'Ctrl+Shift+M' },
+      { command: 'codeBlock', label: '代码块', icon: Code2, shortcut: 'Ctrl+Shift+K' },
+      { command: 'codeTools', label: '代码工具', icon: Code2, child: true },
+      { command: 'calloutBlock', label: '警告框', icon: AlertTriangle, child: true },
+      { label: '', separator: true },
+      { command: 'quote', label: '引用', icon: Quote, shortcut: 'Ctrl+Shift+Q' },
+      { label: '', separator: true },
+      { command: 'orderedList', label: '有序列表', icon: ListOrdered, shortcut: 'Ctrl+Shift+[' },
+      { command: 'unorderedList', label: '无序列表', icon: ListIcon, shortcut: 'Ctrl+Shift+]' },
+      { command: 'taskList', label: '任务列表', icon: CheckCircle2, shortcut: 'Ctrl+Shift+X' },
+      { command: 'toggleTaskState', label: '任务状态', icon: CheckCircle2, child: true },
+      { command: 'sinkListItem', label: '列表缩进', icon: IndentIncrease, child: true },
+      { command: 'liftListItem', label: '减少列表缩进', icon: IndentDecrease },
+      { label: '', separator: true },
+      { command: 'insertParagraphBefore', label: '在上方插入段落', icon: Pilcrow },
+      { command: 'insertParagraphAfter', label: '在下方插入段落', icon: Pilcrow },
     ],
   },
   {
@@ -150,6 +238,9 @@ const editor = useEditor({
     TaskItem.configure({
       nested: true,
     }),
+    FormulaBlock,
+    CalloutBlock,
+    SimpleTable,
   ],
   editorProps: {
     attributes: {
@@ -234,20 +325,87 @@ function showStatusToast(type: 'success' | 'error', message: string) {
   }, 2000)
 }
 
+function getHeadingLevel(): HeadingLevel | null {
+  const current = editor.value
+  if (!current) return null
+  for (const level of [1, 2, 3, 4, 5, 6] as HeadingLevel[]) {
+    if (current.isActive('heading', { level })) return level
+  }
+  return null
+}
+
+function setHeadingLevel(level: HeadingLevel) {
+  const current = editor.value
+  if (!current) return
+  current.chain().focus().toggleHeading({ level }).run()
+}
+
+function adjustHeadingLevel(delta: number) {
+  const current = editor.value
+  if (!current) return
+  const level = getHeadingLevel()
+  if (!level) return
+  const next = Math.min(6, Math.max(1, level + delta)) as HeadingLevel
+  current.chain().focus().toggleHeading({ level: next }).run()
+}
+
+function toggleTaskState() {
+  const current = editor.value
+  if (!current) return
+
+  if (!current.isActive('taskList')) {
+    current.chain().focus().toggleTaskList().run()
+  }
+
+  let taskItemPos: number | null = null
+  const { $from } = current.view.state.selection
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth)
+    if (node.type.name === 'taskItem') {
+      taskItemPos = $from.before(depth)
+      break
+    }
+  }
+
+  if (taskItemPos === null) return
+
+  const node = current.state.doc.nodeAt(taskItemPos)
+  if (!node) return
+
+  current
+    .chain()
+    .focus()
+    .command(({ tr }) => {
+      tr.setNodeMarkup(taskItemPos!, undefined, {
+        ...node.attrs,
+        checked: !node.attrs.checked,
+      })
+      return true
+    })
+    .run()
+}
+
 function openEditorContextMenu(event: MouseEvent) {
   event.preventDefault()
   editor.value?.commands.focus()
 
   const menuWidth = 248
   const menuHeight = 206
+  const flyoutWidth = 300
+  const flyoutGap = 6
   const margin = 12
   const x = Math.min(event.clientX, window.innerWidth - menuWidth - margin)
   const y = Math.min(event.clientY, window.innerHeight - menuHeight - margin)
+  const clampedY = Math.max(margin, y)
+  const flyoutDirection = x + menuWidth + flyoutGap + flyoutWidth > window.innerWidth - margin ? 'left' : 'right'
+  const flyoutMaxHeight = Math.max(180, window.innerHeight - clampedY - margin)
 
   contextMenu.value = {
     open: true,
     x: Math.max(margin, x),
-    y: Math.max(margin, y),
+    y: clampedY,
+    flyoutDirection,
+    flyoutMaxHeight,
     activeSubmenu: '',
   }
 }
@@ -299,6 +457,69 @@ async function executeContextAction(command?: string, disabled?: boolean) {
 
   if (command === 'delete') {
     editor.value?.chain().focus().deleteSelection().run()
+    closeContextMenu()
+    return
+  }
+
+  if (command === 'heading1') { setHeadingLevel(1); closeContextMenu(); return }
+  if (command === 'heading2') { setHeadingLevel(2); closeContextMenu(); return }
+  if (command === 'heading3') { setHeadingLevel(3); closeContextMenu(); return }
+  if (command === 'heading4') { setHeadingLevel(4); closeContextMenu(); return }
+  if (command === 'heading5') { setHeadingLevel(5); closeContextMenu(); return }
+  if (command === 'heading6') { setHeadingLevel(6); closeContextMenu(); return }
+  if (command === 'promoteHeading') { adjustHeadingLevel(-1); closeContextMenu(); return }
+  if (command === 'demoteHeading') { adjustHeadingLevel(1); closeContextMenu(); return }
+  if (command === 'sinkListItem') { editor.value?.chain().focus().sinkListItem('listItem').run(); closeContextMenu(); return }
+  if (command === 'liftListItem') { editor.value?.chain().focus().liftListItem('listItem').run(); closeContextMenu(); return }
+  if (command === 'insertTable') {
+    const current = editor.value
+    if (current) {
+      current.chain().focus().insertContent({ type: 'simpleTable' }).run()
+    }
+    closeContextMenu()
+    return
+  }
+  if (command === 'formulaBlock') {
+    const current = editor.value
+    if (current) {
+      current.chain().focus().insertContent({ type: 'formulaBlock', content: [{ type: 'text', text: 'E = mc^2' }] }).run()
+    }
+    closeContextMenu()
+    return
+  }
+  if (command === 'calloutBlock') {
+    const current = editor.value
+    if (current) {
+      current.chain().focus().insertContent({ type: 'calloutBlock', content: [{ type: 'text', text: '警告内容' }] }).run()
+    }
+    closeContextMenu()
+    return
+  }
+  if (command === 'toggleTaskState') {
+    toggleTaskState()
+    closeContextMenu()
+    return
+  }
+  if (command === 'codeTools') {
+    editor.value?.chain().focus().setCodeBlock().run()
+    closeContextMenu()
+    return
+  }
+  if (command === 'insertParagraphBefore') {
+    const current = editor.value
+    if (current) {
+      const pos = current.state.selection.from
+      current.chain().focus().insertContentAt(pos, { type: 'paragraph' }).run()
+    }
+    closeContextMenu()
+    return
+  }
+  if (command === 'insertParagraphAfter') {
+    const current = editor.value
+    if (current) {
+      const pos = current.state.selection.to
+      current.chain().focus().insertContentAt(pos, { type: 'paragraph' }).run()
+    }
     closeContextMenu()
     return
   }
@@ -373,6 +594,11 @@ function isToolActive(command: string): boolean {
   if (command === 'inlineCode') return current.isActive('code')
   if (command === 'codeBlock') return current.isActive('codeBlock')
   if (command === 'link') return current.isActive('link')
+  if (command === 'paragraph') return current.isActive('paragraph')
+  if (command === 'heading3') return current.isActive('heading', { level: 3 })
+  if (command === 'heading4') return current.isActive('heading', { level: 4 })
+  if (command === 'heading5') return current.isActive('heading', { level: 5 })
+  if (command === 'heading6') return current.isActive('heading', { level: 6 })
   return false
 }
 
@@ -493,7 +719,12 @@ onBeforeUnmount(() => {
         <div
           v-if="contextMenu.open"
           class="note-context-menu"
-          :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+          :class="`note-context-menu--flyout-${contextMenu.flyoutDirection}`"
+          :style="{
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
+            '--flyout-max-height': `${contextMenu.flyoutMaxHeight}px`,
+          }"
           role="menu"
           @contextmenu.prevent
         >
@@ -562,6 +793,7 @@ onBeforeUnmount(() => {
             v-show="contextMenu.activeSubmenu === submenu.key"
             :key="`flyout-${submenu.key}`"
             class="ncm-flyout"
+            :data-submenu="submenu.key"
             role="menu"
           >
             <button
@@ -570,13 +802,20 @@ onBeforeUnmount(() => {
               type="button"
               class="ncm-flyout__item"
               :class="{ disabled: item.disabled }"
-              :disabled="item.disabled"
+              :disabled="item.disabled || item.separator"
               :title="item.hint || item.label"
               @click="executeContextAction(item.command, item.disabled)"
             >
-              <component v-if="item.icon" :is="item.icon" :size="13" :stroke-width="1.8" />
-              <span>{{ item.label }}</span>
-              <small v-if="item.hint">{{ item.hint }}</small>
+              <template v-if="item.separator">
+                <span class="ncm-flyout__separator"></span>
+              </template>
+              <template v-else>
+                <component v-if="item.icon" :is="item.icon" :size="13" :stroke-width="1.8" />
+                <span>{{ item.label }}</span>
+                <span v-if="item.shortcut" class="ncm-shortcut">{{ item.shortcut }}</span>
+                <ChevronRight v-else-if="item.child" class="ncm-child-arrow" :size="11" :stroke-width="1.8" />
+                <small v-if="item.hint">{{ item.hint }}</small>
+              </template>
             </button>
           </div>
         </div>
@@ -658,6 +897,11 @@ onBeforeUnmount(() => {
 .ne-body :deep(pre) { margin: 0.6rem 0 1rem; padding: 0.85rem 1rem; border-radius: 8px; background: #2b2520; color: #f7efe7; overflow-x: auto; }
 .ne-body :deep(pre code) { padding: 0; background: transparent; color: inherit; }
 .ne-body :deep(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.ne-body :deep(.simple-table) { width: min(520px, 100%); margin: 0.7rem 0 1rem; border-collapse: collapse; background: var(--bg-card); font-family: var(--font-ui); }
+.ne-body :deep(.simple-table td) { min-width: 72px; height: 34px; border: 1px solid var(--border-color); }
+.ne-body :deep(.formula-block) { margin: 0.7rem 0 1rem; padding: 0.65rem 0.8rem; border: 1px solid var(--border-color); border-radius: 8px; background: #fffaf4; font-family: var(--font-mono); color: var(--text-primary); }
+.ne-body :deep(.formula-block::before) { content: '公式'; margin-right: 0.6rem; color: var(--accent); font-family: var(--font-ui); font-size: 0.72rem; font-weight: 600; }
+.ne-body :deep(.callout-block) { margin: 0.7rem 0 1rem; padding: 0.65rem 0.8rem; border-left: 3px solid #d97706; border-radius: 6px; background: #fff7ed; color: #7c2d12; font-family: var(--font-body); }
 .note-context-menu { position: fixed; z-index: 500; width: 248px; padding: 7px 0; border: 1px solid rgba(228, 217, 206, 0.9); border-radius: 8px; background: rgba(255, 255, 255, 0.96); box-shadow: 0 10px 22px rgba(61, 46, 36, 0.12); color: #3f3f3f; font-family: var(--font-ui); }
 .ncm-icon-grid { display: grid; grid-template-columns: repeat(4, 42px); gap: 5px; justify-content: center; padding: 0 10px; }
 .ncm-icon-grid--top { margin-bottom: 5px; }
@@ -668,12 +912,18 @@ onBeforeUnmount(() => {
 .ncm-row { position: relative; height: 30px; padding: 0 16px 0 24px; display: flex; align-items: center; justify-content: space-between; color: #4a4a4a; font-size: 13px; line-height: 1; cursor: default; outline: none; }
 .ncm-row:hover, .ncm-row:focus { background: #f7f3ef; color: var(--accent); }
 .ncm-separator { height: 1px; margin: 6px 0; background: #eef0f2; }
-.ncm-flyout { position: absolute; top: 38px; left: calc(100% + 6px); width: 172px; padding: 5px; border: 1px solid rgba(228, 217, 206, 0.95); border-radius: 8px; background: rgba(255, 255, 255, 0.98); box-shadow: 0 10px 20px rgba(61, 46, 36, 0.12); }
-.ncm-flyout__item { width: 100%; min-height: 26px; padding: 4px 5px; border: none; border-radius: 6px; background: transparent; color: var(--text-primary); display: grid; grid-template-columns: 14px 1fr; column-gap: 5px; align-items: center; text-align: left; font-family: var(--font-ui); font-size: 0.68rem; cursor: pointer; }
+.ncm-flyout { position: absolute; top: 0; left: calc(100% + 6px); width: 172px; max-height: var(--flyout-max-height, 320px); overflow-y: auto; padding: 5px; border: 1px solid rgba(228, 217, 206, 0.95); border-radius: 8px; background: rgba(255, 255, 255, 0.98); box-shadow: 0 10px 20px rgba(61, 46, 36, 0.12); }
+.note-context-menu--flyout-left .ncm-flyout { right: calc(100% + 6px); left: auto; }
+.ncm-flyout[data-submenu="paragraph"] { width: 300px; }
+.ncm-flyout__item { width: 100%; min-height: 26px; padding: 4px 5px; border: none; border-radius: 6px; background: transparent; color: var(--text-primary); display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 7px; align-items: center; text-align: left; font-family: var(--font-ui); font-size: 0.72rem; cursor: pointer; }
 .ncm-flyout__item:hover:not(:disabled) { background: var(--accent-light); color: var(--accent); }
-.ncm-flyout__item small { grid-column: 2; margin-top: 2px; color: var(--text-muted); font-size: 0.6rem; line-height: 1.2; }
+.ncm-flyout__item small { grid-column: 2 / 4; margin-top: 2px; color: var(--text-muted); font-size: 0.6rem; line-height: 1.2; }
 .ncm-flyout__item.disabled, .ncm-flyout__item:disabled { color: #aeb5ba; cursor: not-allowed; }
 .ncm-flyout__item.disabled small, .ncm-flyout__item:disabled small { color: #bfc5ca; }
+.ncm-flyout__item:has(.ncm-flyout__separator) { min-height: 1px; padding: 4px 0; pointer-events: none; }
+.ncm-flyout__separator { grid-column: 1 / 4; height: 1px; background: #eef0f2; }
+.ncm-shortcut { justify-self: end; color: var(--text-secondary); font-size: 0.68rem; white-space: nowrap; }
+.ncm-child-arrow { justify-self: end; color: var(--text-muted); }
 .ne-footer { padding: 0.6rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-muted); }
 .ne-footer__actions { display: flex; gap: 0.5rem; }
 .ne-footer__btn { padding: 0.25rem 0.7rem; border: 1px solid var(--border-color); border-radius: 14px; background: var(--bg-card); font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-secondary); cursor: pointer; transition: all 0.1s; }

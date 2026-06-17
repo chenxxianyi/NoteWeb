@@ -87,4 +87,102 @@ test.describe('Notes', () => {
 
     await expect(editorBody).toContainText('菜单粘贴文本')
   })
+
+  test('6. paragraph submenu shows block actions', async ({ authedPage }) => {
+    await authedPage.goto('/notes')
+    await authedPage.waitForTimeout(1500)
+
+    await authedPage.locator('.nl-header__btn').click()
+    const editorBody = authedPage.locator('.ne-body .ProseMirror')
+    await expect(editorBody).toBeVisible({ timeout: 5000 })
+    await editorBody.click({ button: 'right' })
+
+    const menu = authedPage.locator('.note-context-menu')
+    await expect(menu).toBeVisible()
+
+    await menu.locator('.ncm-row', { hasText: '段落' }).hover()
+
+    const flyout = menu.locator('.ncm-flyout[data-submenu="paragraph"]')
+    await expect(flyout).toBeVisible()
+    await expect(flyout.getByRole('button', { name: /一级标题/ })).toBeVisible()
+    await expect(flyout.getByRole('button', { name: /三级标题/ })).toBeVisible()
+    await expect(flyout.getByRole('button', { name: /六级标题/ })).toBeVisible()
+    await expect(flyout.getByRole('button', { name: /提升标题级别/ })).toBeVisible()
+    await expect(flyout.getByRole('button', { name: /表格/ })).toBeVisible()
+    await expect(flyout.getByRole('button', { name: /任务列表/ })).toBeVisible()
+    await expect(flyout.getByRole('button', { name: /在上方插入段落/ })).toBeVisible()
+  })
+
+  test('7. paragraph submenu can apply heading three', async ({ authedPage }) => {
+    await authedPage.goto('/notes')
+    await authedPage.waitForTimeout(1500)
+
+    await authedPage.locator('.nl-header__btn').click()
+    const editorBody = authedPage.locator('.ne-body .ProseMirror')
+    await expect(editorBody).toBeVisible({ timeout: 5000 })
+    await editorBody.click()
+    await editorBody.type('三级标题测试')
+    await editorBody.click({ button: 'right' })
+
+    const menu = authedPage.locator('.note-context-menu')
+    await expect(menu).toBeVisible()
+
+    await menu.locator('.ncm-row', { hasText: '段落' }).hover()
+    await menu.locator('.ncm-flyout[data-submenu="paragraph"] .ncm-flyout__item', { hasText: '三级标题' }).click()
+
+    await expect(editorBody.locator('h3')).toHaveText('三级标题测试')
+  })
+
+  test('8. paragraph submenu inserts advanced blocks', async ({ authedPage }) => {
+    await authedPage.goto('/notes')
+    await authedPage.waitForTimeout(1500)
+
+    await authedPage.locator('.nl-header__btn').click()
+    const editorBody = authedPage.locator('.ne-body .ProseMirror')
+    await expect(editorBody).toBeVisible({ timeout: 5000 })
+
+    async function runBlockCommand(name: string) {
+      await editorBody.click({ button: 'right' })
+      const menu = authedPage.locator('.note-context-menu')
+      await expect(menu).toBeVisible()
+      await menu.locator('.ncm-row', { hasText: '段落' }).hover()
+      await menu.locator('.ncm-flyout[data-submenu="paragraph"] .ncm-flyout__item', { hasText: name }).click()
+    }
+
+    await runBlockCommand('表格')
+    await expect(editorBody.locator('table')).toBeVisible()
+
+    await runBlockCommand('公式块')
+    await expect(editorBody.locator('[data-type="formula-block"]')).toBeVisible()
+
+    await runBlockCommand('警告框')
+    await expect(editorBody.locator('[data-type="callout-block"]')).toBeVisible()
+
+    await runBlockCommand('代码工具')
+    await expect(editorBody.locator('pre')).toBeVisible()
+  })
+
+  test('9. task state submenu toggles task item', async ({ authedPage }) => {
+    await authedPage.goto('/notes')
+    await authedPage.waitForTimeout(1500)
+
+    await authedPage.locator('.nl-header__btn').click()
+    const editorBody = authedPage.locator('.ne-body .ProseMirror')
+    await expect(editorBody).toBeVisible({ timeout: 5000 })
+    await editorBody.click()
+    await editorBody.type('任务一')
+    await authedPage.keyboard.press('Enter')
+    await authedPage.keyboard.press('Space')
+
+    await editorBody.click({ button: 'right' })
+    const menu = authedPage.locator('.note-context-menu')
+    await expect(menu).toBeVisible()
+    await menu.locator('.ncm-row', { hasText: '段落' }).hover()
+    const taskStateItem = menu.locator('.ncm-flyout[data-submenu="paragraph"] .ncm-flyout__item', { hasText: '任务状态' })
+    await taskStateItem.scrollIntoViewIfNeeded()
+    await taskStateItem.click()
+
+    await expect(editorBody.locator('li input[type="checkbox"]')).toHaveCount(1)
+    await expect(editorBody.locator('li input[type="checkbox"]')).toBeChecked()
+  })
 })
