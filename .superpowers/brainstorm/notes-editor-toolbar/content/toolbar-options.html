@@ -1,0 +1,68 @@
+<h2>笔记编辑器工具栏增强方向</h2>
+<p class="subtitle">参考 Typora，但控制复杂度：增强常用 Markdown 编辑能力，不把页面变成完整 IDE。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:34px;border-bottom:1px solid #eadfd4;display:flex;align-items:center;gap:8px;padding:0 14px;background:#fbf7f1">
+        <button class="mock-button">B</button>
+        <button class="mock-button">I</button>
+        <button class="mock-button">H1</button>
+        <button class="mock-button">List</button>
+        <button class="mock-button">Quote</button>
+      </div>
+      <div class="placeholder" style="height:130px">轻量增强：最常用 5 个按钮</div>
+    </div>
+    <div class="card-body">
+      <h3>A. 保守增强</h3>
+      <p>增加加粗、斜体、标题、列表、引用。改动小，风险低，但功能提升有限。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:34px;border-bottom:1px solid #eadfd4;display:flex;align-items:center;gap:7px;padding:0 14px;background:#fbf7f1">
+        <button class="mock-button">B</button>
+        <button class="mock-button">I</button>
+        <button class="mock-button">S</button>
+        <span style="height:18px;border-left:1px solid #ddd"></span>
+        <button class="mock-button">H1</button>
+        <button class="mock-button">H2</button>
+        <span style="height:18px;border-left:1px solid #ddd"></span>
+        <button class="mock-button">•</button>
+        <button class="mock-button">1.</button>
+        <button class="mock-button">☑</button>
+        <button class="mock-button">❝</button>
+        <button class="mock-button">`</button>
+        <button class="mock-button">🔗</button>
+      </div>
+      <div class="placeholder" style="height:130px">常用 Markdown 工具组</div>
+    </div>
+    <div class="card-body">
+      <h3>B. Typora 常用工具组</h3>
+      <p>推荐：覆盖格式、标题、列表、任务、引用、代码、链接。功能明显增强，仍保持单行工具栏。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:34px;border-bottom:1px solid #eadfd4;display:flex;align-items:center;gap:8px;padding:0 14px;background:#fbf7f1">
+        <button class="mock-button">格式 ▾</button>
+        <button class="mock-button">插入 ▾</button>
+        <button class="mock-button">列表 ▾</button>
+        <button class="mock-button">预览</button>
+        <button class="mock-button">字数</button>
+      </div>
+      <div class="placeholder" style="height:130px">下拉分组 + 辅助面板</div>
+    </div>
+    <div class="card-body">
+      <h3>C. 分组下拉式</h3>
+      <p>最接近成熟编辑器，可扩展表格、图片、目录、预览等，但首轮开发更重。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我建议先做 B</h3>
+  <p>先把用户最常用的 Markdown 操作做好：选中文字后包裹语法，没有选区就插入模板；同时补快捷键 Ctrl+B / Ctrl+I / Ctrl+K。后续再加预览、表格和目录。</p>
+</div>

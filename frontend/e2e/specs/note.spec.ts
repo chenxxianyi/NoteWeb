@@ -42,4 +42,49 @@ test.describe('Notes', () => {
 
     await expect(toast).toBeHidden({ timeout: 5000 })
   })
+
+  test('4. editor context menu opens and closes', async ({ authedPage }) => {
+    await authedPage.goto('/notes')
+    await authedPage.waitForTimeout(1500)
+
+    await authedPage.locator('.nl-header__btn').click()
+    const editorBody = authedPage.locator('.ne-body .ProseMirror')
+    await expect(editorBody).toBeVisible({ timeout: 5000 })
+    await editorBody.click({ button: 'right' })
+
+    const menu = authedPage.locator('.note-context-menu')
+    await expect(menu).toBeVisible()
+    const box = await menu.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.width).toBeLessThan(270)
+    await expect(menu.locator('.ncm-row', { hasText: '复制 / 粘贴为...' })).toBeVisible()
+    await expect(menu.getByRole('button', { name: '加粗' })).toBeVisible()
+    await expect(menu.getByRole('button', { name: '插入链接' })).toBeVisible()
+
+    await authedPage.locator('.note-list').click()
+    await expect(menu).toBeHidden()
+  })
+
+  test('5. context menu paste inserts clipboard text when allowed', async ({ authedPage }) => {
+    await authedPage.goto('/notes')
+    await authedPage.waitForTimeout(1500)
+
+    await authedPage.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          readText: async () => '菜单粘贴文本',
+        },
+      })
+    })
+
+    await authedPage.locator('.nl-header__btn').click()
+    const editorBody = authedPage.locator('.ne-body .ProseMirror')
+    await expect(editorBody).toBeVisible({ timeout: 5000 })
+    await editorBody.click({ button: 'right' })
+
+    await authedPage.getByRole('button', { name: '粘贴' }).click()
+
+    await expect(editorBody).toContainText('菜单粘贴文本')
+  })
 })
