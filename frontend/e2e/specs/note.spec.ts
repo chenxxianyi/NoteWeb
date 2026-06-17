@@ -185,4 +185,33 @@ test.describe('Notes', () => {
     await expect(editorBody.locator('li input[type="checkbox"]')).toHaveCount(1)
     await expect(editorBody.locator('li input[type="checkbox"]')).toBeChecked()
   })
+
+  test('10. deletes the current note after confirmation', async ({ authedPage }) => {
+    await authedPage.goto('/notes')
+    await authedPage.waitForTimeout(1500)
+
+    await authedPage.locator('.nl-header__btn').click()
+    await authedPage.locator('.ne-title').fill('待保留笔记')
+    await authedPage.locator('.ne-footer__btn').click()
+    await expect(authedPage.locator('.note-toast')).toBeVisible({ timeout: 5000 })
+
+    await authedPage.locator('.nl-header__btn').click()
+    await authedPage.locator('.ne-title').fill('待删除笔记')
+    await authedPage.locator('.ne-footer__btn').click()
+    await expect(authedPage.locator('.note-toast')).toBeVisible({ timeout: 5000 })
+
+    await expect(authedPage.locator('.nl-item', { hasText: '待删除笔记' })).toBeVisible()
+    await expect(authedPage.locator('.nl-item', { hasText: '待保留笔记' })).toBeVisible()
+
+    authedPage.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain('删除')
+      await dialog.accept()
+    })
+
+    await authedPage.getByRole('button', { name: '删除当前笔记' }).click()
+
+    await expect(authedPage.locator('.nl-item', { hasText: '待删除笔记' })).toHaveCount(0)
+    await expect(authedPage.locator('.nl-item.active', { hasText: '待保留笔记' })).toBeVisible()
+    await expect(authedPage.locator('.ne-title')).toHaveValue('待保留笔记')
+  })
 })

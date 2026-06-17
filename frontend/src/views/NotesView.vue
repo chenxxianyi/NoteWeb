@@ -112,6 +112,7 @@ const activeTag = ref('全部')
 const draftTitle = ref('')
 const draftContent = ref('')
 const saving = ref(false)
+const deleting = ref(false)
 const statusToast = ref<{ type: 'success' | 'error'; message: string } | null>(null)
 const contextMenu = ref({
   open: false,
@@ -313,6 +314,31 @@ async function saveNote() {
     showStatusToast('error', e?.response?.data?.detail || e?.message || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function deleteCurrentNote() {
+  if (!currentNote.value || deleting.value) return
+
+  const noteId = currentNote.value.id
+  const title = draftTitle.value.trim() || currentNote.value.title || '未命名笔记'
+  const confirmed = window.confirm(`确定删除「${title}」吗？此操作不可撤销。`)
+  if (!confirmed) return
+
+  deleting.value = true
+  try {
+    const visibleNotes = filteredNotes.value
+    const currentIndex = visibleNotes.findIndex((note) => note.id === noteId)
+    const nextNote = visibleNotes[currentIndex + 1] || visibleNotes[currentIndex - 1] || null
+
+    await noteStore.remove(noteId)
+    activeNoteId.value = nextNote?.id || null
+
+    showStatusToast('success', '笔记已删除')
+  } catch (e: any) {
+    showStatusToast('error', e?.response?.data?.detail || e?.message || '删除失败')
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -649,9 +675,21 @@ onBeforeUnmount(() => {
       <div class="note-list">
         <div class="nl-header">
           <h2>笔记</h2>
-          <button class="nl-header__btn" title="新建笔记" @click="createNote">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          </button>
+          <div class="nl-header__actions">
+            <button
+              class="nl-header__btn nl-header__btn--danger"
+              type="button"
+              title="删除当前笔记"
+              aria-label="删除当前笔记"
+              :disabled="deleting || !currentNote"
+              @click="deleteCurrentNote"
+            >
+              <Trash2 :size="14" :stroke-width="1.9" />
+            </button>
+            <button class="nl-header__btn" type="button" title="新建笔记" @click="createNote">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+          </div>
         </div>
 
         <div class="nl-search">
@@ -844,10 +882,14 @@ onBeforeUnmount(() => {
 .note-toast--error { color: #b42318; }
 
 .note-list { width: 340px; background: var(--bg-card); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; flex-shrink: 0; }
-.nl-header { padding: 1rem 1.2rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; }
+.nl-header { padding: 1rem 1.2rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .nl-header h2 { font-family: var(--font-display); font-size: 1.1rem; font-weight: 500; }
+.nl-header__actions { display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0; }
 .nl-header__btn { width: 32px; height: 32px; border: 1px solid var(--border-color); border-radius: 50%; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--accent); transition: all 0.12s; }
 .nl-header__btn:hover { background: var(--accent-light); }
+.nl-header__btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.nl-header__btn--danger { color: #b42318; }
+.nl-header__btn--danger:hover:not(:disabled) { background: #fff1ef; border-color: #f3b0a7; }
 
 .nl-search { padding: 0.7rem 1rem; border-bottom: 1px solid var(--border-color); }
 .nl-search input { width: 100%; padding: 0.4rem 0.7rem; border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-page); font-family: var(--font-ui); font-size: 0.78rem; color: var(--text-primary); outline: none; }
@@ -926,8 +968,11 @@ onBeforeUnmount(() => {
 .ncm-child-arrow { justify-self: end; color: var(--text-muted); }
 .ne-footer { padding: 0.6rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-muted); }
 .ne-footer__actions { display: flex; gap: 0.5rem; }
-.ne-footer__btn { padding: 0.25rem 0.7rem; border: 1px solid var(--border-color); border-radius: 14px; background: var(--bg-card); font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-secondary); cursor: pointer; transition: all 0.1s; }
-.ne-footer__btn:hover { border-color: var(--accent); color: var(--accent); }
+.ne-footer__btn { min-width: 32px; height: 28px; padding: 0 0.7rem; border: 1px solid var(--border-color); border-radius: 14px; background: var(--bg-card); font-family: var(--font-ui); font-size: 0.7rem; color: var(--text-secondary); cursor: pointer; transition: all 0.1s; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; }
+.ne-footer__btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.ne-footer__btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.ne-footer__btn--danger { width: 32px; padding: 0; color: #b42318; }
+.ne-footer__btn--danger:hover:not(:disabled) { border-color: #f3b0a7; background: #fff1ef; color: #b42318; }
 
 @media (max-width: 820px) { .note-list { width: 280px; } }
 @media (max-width: 620px) { .note-list { width: 100%; } .note-editor { display: none; } .note-toast { top: 3.75rem; } }

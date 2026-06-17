@@ -12,7 +12,9 @@ export const test = base.extend<AuthFixtures>({
   },
 
   authedPage: async ({ browser, user }, use) => {
-    const ctx = await browser.newContext()
+    const ctx = await browser.newContext({
+      baseURL: process.env.BASE_URL || 'http://127.0.0.1:5174',
+    })
     const page = await ctx.newPage()
 
     // Navigate to any page first so relative fetch URLs work
