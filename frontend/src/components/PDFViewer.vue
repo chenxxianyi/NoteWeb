@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import * as pdfjs from 'pdfjs-dist'
 import request from '../utils/request'
+import type { AnnotationReplacementCreate } from '../api/annotation'
 import { useAnnotationStore } from '../stores/annotationStore'
 import PDFPageWrapper from './PDFPageWrapper.vue'
 import type { Stroke, StrokeReplacement } from './PDFPageWrapper.vue'
@@ -47,16 +48,49 @@ const strokesByPage = ref<Map<number, Stroke[]>>(new Map())
 const history: HistoryEntry[] = []
 let pdfDoc: pdfjs.PDFDocumentProxy | null = null
 
-async function saveStroke(pageNum: number, stroke: Stroke): Promise<Stroke> {
-  const saved = await annotationStore.create({
-    document_id: props.documentId,
+function strokeCreateData(pageNum: number, stroke: Stroke): AnnotationReplacementCreate {
+  return {
     page: pageNum,
     selected_text: '',
     color: stroke.color,
     type: 'drawing',
-    position_data: { tool: stroke.tool, width: stroke.width, points: stroke.points },
+    position_data: {
+      tool: stroke.tool,
+      width: stroke.width,
+      points: stroke.points,
+    },
+  }
+}
+
+async function saveStroke(pageNum: number, stroke: Stroke): Promise<Stroke> {
+  const saved = await annotationStore.create({
+    document_id: props.documentId,
+    ...strokeCreateData(pageNum, stroke),
   })
   return { ...stroke, id: saved.id }
+}
+
+async function replacePersistedStrokes(
+  pageNum: number,
+  deletedStrokes: Stroke[],
+  createdStrokes: Stroke[],
+): Promise<Stroke[]> {
+  const deleteIDs = deletedStrokes
+    .map((stroke) => stroke.id)
+    .filter((id): id is number => id !== undefined)
+  if (deleteIDs.length !== deletedStrokes.length) {
+    throw new Error('存在尚未保存的笔迹，无法执行批量替换')
+  }
+
+  const created = await annotationStore.replace({
+    document_id: props.documentId,
+    delete_ids: deleteIDs,
+    creates: createdStrokes.map((stroke) => strokeCreateData(pageNum, stroke)),
+  })
+  return created.map((annotation, index) => ({
+    ...createdStrokes[index],
+    id: annotation.id,
+  }))
 }
 
 function setPageStrokes(pageNum: number, strokes: Stroke[]) {
@@ -69,6 +103,10 @@ function redrawPage(pageNum: number) {
     wrapper.clearDrawLayer()
     wrapper.redrawStrokes()
   }
+}
+
+function cancelReplacementPreview(pageNum: number) {
+  pageRefs.value[pageNum - 1]?.cancelPendingReplacement()
 }
 
 async function addStroke(pageNum: number, stroke: Stroke) {
@@ -121,28 +159,6 @@ async function reloadStrokes(pageNum: number) {
   redrawPage(pageNum)
 }
 
-async function rollbackReplacement(
-  pageNum: number,
-  createdStrokes: Stroke[],
-  deletedStrokes: Stroke[],
-) {
-  for (const stroke of createdStrokes) {
-    try {
-      await deleteStroke(stroke)
-    } catch {
-      // Best effort. The final reload reconciles local state with the server.
-    }
-  }
-  for (const stroke of deletedStrokes) {
-    try {
-      await saveStroke(pageNum, stroke)
-    } catch {
-      // Continue restoring the remaining strokes before reloading.
-    }
-  }
-  await reloadStrokes(pageNum)
-}
-
 async function replaceStrokes(pageNum: number, replacements: StrokeReplacement[]) {
   const strokes = strokesByPage.value.get(pageNum)
   if (!strokes || strokes.length === 0) return
@@ -153,32 +169,30 @@ async function replaceStrokes(pageNum: number, replacements: StrokeReplacement[]
       original: strokes[replacement.index],
     }))
     .filter((operation): operation is StrokeReplacement & { original: Stroke } => Boolean(operation.original))
-  if (operations.length === 0) return
-
-  const createdFragments: Stroke[] = []
-  const deletedOriginals: Stroke[] = []
-  const savedGroups: Stroke[][] = []
+  if (operations.length === 0) {
+    cancelReplacementPreview(pageNum)
+    return
+  }
 
   try {
-    for (const operation of operations) {
-      const savedFragments: Stroke[] = []
-      for (const fragment of operation.fragments) {
-        const saved = await saveStroke(pageNum, fragment)
-        savedFragments.push(saved)
-        createdFragments.push(saved)
-      }
-      savedGroups.push(savedFragments)
-    }
+    const fragmentCounts = operations.map((operation) => operation.fragments.length)
+    const savedFragments = await replacePersistedStrokes(
+      pageNum,
+      operations.map((operation) => operation.original),
+      operations.flatMap((operation) => operation.fragments),
+    )
 
-    for (const operation of operations) {
-      await deleteStroke(operation.original)
-      deletedOriginals.push(operation.original)
-    }
-
+    let fragmentOffset = 0
+    const savedGroups = fragmentCounts.map((count) => {
+      const group = savedFragments.slice(fragmentOffset, fragmentOffset + count)
+      fragmentOffset += count
+      return group
+    })
     const fragmentsByIndex = new Map(
       operations.map((operation, index) => [operation.index, savedGroups[index]]),
     )
     const nextStrokes = strokes.flatMap((stroke, index) => fragmentsByIndex.get(index) || [stroke])
+
     setPageStrokes(pageNum, nextStrokes)
     history.push({
       type: 'erase',
@@ -191,37 +205,30 @@ async function replaceStrokes(pageNum: number, replacements: StrokeReplacement[]
     })
   } catch (e: any) {
     console.warn('局部擦除保存失败:', e?.message || e)
-    await rollbackReplacement(pageNum, createdFragments, deletedOriginals)
+    cancelReplacementPreview(pageNum)
   }
 }
 
 async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type: 'erase' }>) {
-  const restoredOriginals: Stroke[] = []
-  const deletedFragments: Stroke[] = []
-
   try {
-    for (const replacement of entry.replacements) {
-      restoredOriginals.push(await saveStroke(entry.pageNum, replacement.original))
-    }
-    for (const replacement of entry.replacements) {
-      for (const fragment of replacement.fragments) {
-        await deleteStroke(fragment)
-        deletedFragments.push(fragment)
-      }
-    }
+    const restoredOriginals = await replacePersistedStrokes(
+      entry.pageNum,
+      entry.replacements.flatMap((replacement) => replacement.fragments),
+      entry.replacements.map((replacement) => replacement.original),
+    )
     entry.replacements.forEach((replacement, index) => {
       remapStrokeInHistory(history, replacement.original, restoredOriginals[index], entryIndex)
     })
 
     const current = strokesByPage.value.get(entry.pageNum) || []
-    const fragmentIds = new Set(
+    const fragmentIDs = new Set(
       entry.replacements.flatMap((replacement) =>
         replacement.fragments
           .map((fragment) => fragment.id)
           .filter((id): id is number => id !== undefined),
       ),
     )
-    const remaining = current.filter((stroke) => !stroke.id || !fragmentIds.has(stroke.id))
+    const remaining = current.filter((stroke) => !stroke.id || !fragmentIDs.has(stroke.id))
     const restoredByIndex = new Map(
       entry.replacements.map((replacement, index) => [replacement.index, restoredOriginals[index]]),
     )
@@ -241,7 +248,7 @@ async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type
     redrawPage(entry.pageNum)
   } catch (e: any) {
     console.warn('恢复擦除批注失败:', e?.message || e)
-    await rollbackReplacement(entry.pageNum, restoredOriginals, deletedFragments)
+    redrawPage(entry.pageNum)
   }
 }
 

@@ -29,5 +29,15 @@ export const useAnnotationStore = defineStore('annotation', () => {
     annotations.value = annotations.value.filter((a) => a.id !== id)
   }
 
-  return { annotations, error, fetchAnnotations, create, remove }
+  async function replace(data: annotationApi.AnnotationReplacePayload) {
+    const res = await annotationApi.replaceAnnotations(data)
+    const deleted = new Set(data.delete_ids)
+    annotations.value = [
+      ...annotations.value.filter((annotation) => !deleted.has(annotation.id)),
+      ...res.data,
+    ]
+    return res.data
+  }
+
+  return { annotations, error, fetchAnnotations, create, remove, replace }
 })

@@ -16,8 +16,74 @@ export interface SplitStrokeOptions {
   minFragmentLength?: number
 }
 
+export interface Bounds {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
 export function distance(a: PointLike, b: PointLike): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+export function getPathBounds(points: PointLike[], padding = 0): Bounds | null {
+  if (points.length === 0) return null
+
+  let left = points[0].x
+  let right = points[0].x
+  let top = points[0].y
+  let bottom = points[0].y
+  for (let index = 1; index < points.length; index++) {
+    const point = points[index]
+    left = Math.min(left, point.x)
+    right = Math.max(right, point.x)
+    top = Math.min(top, point.y)
+    bottom = Math.max(bottom, point.y)
+  }
+
+  return {
+    left: left - padding,
+    top: top - padding,
+    right: right + padding,
+    bottom: bottom + padding,
+  }
+}
+
+export function getStrokeBounds(stroke: WidthStrokeLike): Bounds | null {
+  return getPathBounds(stroke.points, stroke.width / 2)
+}
+
+export function boundsIntersect(a: Bounds, b: Bounds): boolean {
+  return a.left <= b.right &&
+    a.right >= b.left &&
+    a.top <= b.bottom &&
+    a.bottom >= b.top
+}
+
+export function simplifyPathByDistance(points: PointLike[], minDistance: number): PointLike[] {
+  if (points.length <= 2 || minDistance <= 0) {
+    return points.map((point) => ({ ...point }))
+  }
+
+  const minDistanceSquared = minDistance * minDistance
+  const simplified: PointLike[] = [{ ...points[0] }]
+  let lastKept = points[0]
+
+  for (let index = 1; index < points.length - 1; index++) {
+    const point = points[index]
+    const dx = point.x - lastKept.x
+    const dy = point.y - lastKept.y
+    if (dx * dx + dy * dy >= minDistanceSquared) {
+      simplified.push({ ...point })
+      lastKept = point
+    }
+  }
+
+  const last = points[points.length - 1]
+  const tail = simplified[simplified.length - 1]
+  if (tail.x !== last.x || tail.y !== last.y) simplified.push({ ...last })
+  return simplified
 }
 
 export function distanceToSegment(point: PointLike, a: PointLike, b: PointLike): number {

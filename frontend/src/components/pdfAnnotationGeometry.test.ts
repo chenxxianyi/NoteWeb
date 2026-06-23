@@ -21,10 +21,36 @@ type SplitRect = (
   end: { x: number; y: number },
 ) => TestStroke[]
 
+interface Bounds {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+type GetStrokeBounds = (stroke: TestStroke) => Bounds
+type GetPathBounds = (
+  points: Array<{ x: number; y: number }>,
+  padding?: number,
+) => Bounds | null
+type BoundsIntersect = (a: Bounds, b: Bounds) => boolean
+type SimplifyPath = (
+  points: Array<{ x: number; y: number }>,
+  minDistance: number,
+) => Array<{ x: number; y: number }>
+
 const splitStrokeByEraserPath = (geometry as unknown as Record<string, unknown>)
   .splitStrokeByEraserPath as SplitPath
 const splitStrokeByRect = (geometry as unknown as Record<string, unknown>)
   .splitStrokeByRect as SplitRect
+const getStrokeBounds = (geometry as unknown as Record<string, unknown>)
+  .getStrokeBounds as GetStrokeBounds
+const getPathBounds = (geometry as unknown as Record<string, unknown>)
+  .getPathBounds as GetPathBounds
+const boundsIntersect = (geometry as unknown as Record<string, unknown>)
+  .boundsIntersect as BoundsIntersect
+const simplifyPathByDistance = (geometry as unknown as Record<string, unknown>)
+  .simplifyPathByDistance as SimplifyPath
 
 function lineStroke(
   startX = 0,
@@ -129,4 +155,39 @@ test('tiny fragments at the ends are discarded', () => {
   const fragments = splitStrokeByEraserPath(lineStroke(0, 20), [{ x: 10, y: 0 }], 8)
 
   assert.deepEqual(fragments, [])
+})
+
+test('stroke bounds include half the stroke width', () => {
+  assert.equal(typeof getStrokeBounds, 'function')
+
+  const bounds = getStrokeBounds(lineStroke(0, 100, { width: 10 }))
+
+  assert.deepEqual(bounds, { left: -5, top: -5, right: 105, bottom: 5 })
+})
+
+test('path bounds include requested eraser padding', () => {
+  assert.equal(typeof getPathBounds, 'function')
+
+  const bounds = getPathBounds([{ x: 10, y: 20 }, { x: 30, y: 5 }], 8)
+
+  assert.deepEqual(bounds, { left: 2, top: -3, right: 38, bottom: 28 })
+})
+
+test('bounds intersection rejects distant strokes and keeps touching strokes', () => {
+  assert.equal(typeof boundsIntersect, 'function')
+  const gesture = { left: 10, top: 10, right: 20, bottom: 20 }
+
+  assert.equal(boundsIntersect(gesture, { left: 20, top: 12, right: 30, bottom: 18 }), true)
+  assert.equal(boundsIntersect(gesture, { left: 21, top: 12, right: 30, bottom: 18 }), false)
+})
+
+test('distance simplification reduces dense paths while preserving first and last points', () => {
+  assert.equal(typeof simplifyPathByDistance, 'function')
+  const points = Array.from({ length: 101 }, (_, x) => ({ x, y: 0 }))
+
+  const simplified = simplifyPathByDistance(points, 10)
+
+  assert.deepEqual(simplified[0], points[0])
+  assert.deepEqual(simplified.at(-1), points.at(-1))
+  assert.ok(simplified.length <= 12)
 })

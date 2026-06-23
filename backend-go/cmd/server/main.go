@@ -5,13 +5,13 @@ import (
 	"log"
 	"os"
 
-	"github.com/gin-gonic/gin"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/config"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/handlers"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/middleware"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/models"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/repository"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/service"
+	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -82,6 +82,7 @@ func main() {
 
 		protected.GET("/documents/:id/annotations", annH.ListByDocument)
 		protected.POST("/annotations", annH.Create)
+		protected.POST("/annotations/replace", annH.Replace)
 		protected.DELETE("/annotations/:id", annH.Delete)
 
 		protected.GET("/notes", noteH.List)

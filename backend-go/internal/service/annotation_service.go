@@ -6,14 +6,26 @@ import (
 	"time"
 
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/models"
-	"github.com/chenxxianyi/NoteWeb/backend-go/internal/repository"
 )
 
 type AnnotationService struct {
-	repo *repository.AnnotationRepo
+	repo AnnotationRepository
 }
 
-func NewAnnotationService(repo *repository.AnnotationRepo) *AnnotationService {
+type AnnotationRepository interface {
+	GetByID(id uint) (*models.Annotation, error)
+	ListByDocument(docID uint) ([]models.Annotation, error)
+	Create(ann *models.Annotation) error
+	SoftDelete(id uint) error
+	Replace(
+		userID uint,
+		documentID uint,
+		deleteIDs []uint,
+		creates []models.Annotation,
+	) ([]models.Annotation, error)
+}
+
+func NewAnnotationService(repo AnnotationRepository) *AnnotationService {
 	return &AnnotationService{repo: repo}
 }
 
@@ -77,6 +89,40 @@ func (s *AnnotationService) Delete(annID, userID uint) error {
 	return s.repo.SoftDelete(annID)
 }
 
+func (s *AnnotationService) Replace(
+	userID uint,
+	req AnnotationReplaceRequest,
+) ([]AnnotationResponse, error) {
+	creates := make([]models.Annotation, 0, len(req.Creates))
+	for _, create := range req.Creates {
+		positionData, err := json.Marshal(create.PositionData)
+		if err != nil {
+			return nil, err
+		}
+		creates = append(creates, models.Annotation{
+			UserID:         userID,
+			DocumentID:     req.DocumentID,
+			PageNumber:     create.Page,
+			SelectedText:   create.SelectedText,
+			Color:          create.Color,
+			AnnotationType: create.AnnType,
+			Note:           create.Note,
+			PositionData:   string(positionData),
+		})
+	}
+
+	created, err := s.repo.Replace(userID, req.DocumentID, req.DeleteIDs, creates)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]AnnotationResponse, 0, len(created))
+	for index := range created {
+		result = append(result, toAnnResponse(&created[index]))
+	}
+	return result, nil
+}
+
 type AnnotationCreateRequest struct {
 	DocumentID   uint                   `json:"document_id"`
 	Page         int                    `json:"page"`
@@ -85,4 +131,19 @@ type AnnotationCreateRequest struct {
 	AnnType      string                 `json:"type"`
 	Note         string                 `json:"note"`
 	PositionData map[string]interface{} `json:"position_data"`
+}
+
+type AnnotationReplacementCreateRequest struct {
+	Page         int                    `json:"page"`
+	SelectedText string                 `json:"selected_text"`
+	Color        string                 `json:"color"`
+	AnnType      string                 `json:"type"`
+	Note         string                 `json:"note"`
+	PositionData map[string]interface{} `json:"position_data"`
+}
+
+type AnnotationReplaceRequest struct {
+	DocumentID uint                                 `json:"document_id"`
+	DeleteIDs  []uint                               `json:"delete_ids"`
+	Creates    []AnnotationReplacementCreateRequest `json:"creates"`
 }

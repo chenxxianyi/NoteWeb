@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/service"
+	"github.com/gin-gonic/gin"
 )
 
 type AnnotationHandler struct {
@@ -53,4 +53,20 @@ func (h *AnnotationHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"detail": "ok"})
+}
+
+func (h *AnnotationHandler) Replace(c *gin.Context) {
+	userID := c.GetUint("userID")
+	var req service.AnnotationReplaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "参数错误"})
+		return
+	}
+
+	created, err := h.svc.Replace(userID, req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, created)
 }
