@@ -5,14 +5,23 @@ import request from '../utils/request'
 import type { AnnotationReplacementCreate } from '../api/annotation'
 import { useAnnotationStore } from '../stores/annotationStore'
 import PDFPageWrapper from './PDFPageWrapper.vue'
-import type { Stroke, StrokeReplacement } from './PDFPageWrapper.vue'
+import type {
+  Drawing,
+  DrawingReplacement,
+  PDFActiveTool,
+  Point,
+  ShapeDrawing,
+  ShapeType,
+} from './pdfDrawingTypes'
+import { isShapeDrawing } from './pdfDrawingTypes'
 import { remapStrokeInHistory } from './pdfAnnotationHistory'
 
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
 const props = defineProps<{
   documentId: number
-  activeTool: 'none' | 'pen' | 'highlighter' | 'eraser'
+  activeTool: PDFActiveTool
+  shapeType: ShapeType
   eraseMode: 'freehand' | 'area'
   penColor: string
   penWidth: number
@@ -26,13 +35,20 @@ const emit = defineEmits<{
 
 type EraseHistoryReplacement = {
   index: number
-  original: Stroke
-  fragments: Stroke[]
+  original: Drawing
+  fragments: Drawing[]
 }
 
 type HistoryEntry =
-  | { type: 'draw'; pageNum: number; stroke: Stroke }
+  | { type: 'draw'; pageNum: number; stroke: Drawing }
   | { type: 'erase'; pageNum: number; replacements: EraseHistoryReplacement[] }
+  | {
+      type: 'edit'
+      pageNum: number
+      index: number
+      original: Drawing
+      replacement: Drawing
+    }
 
 const annotationStore = useAnnotationStore()
 
@@ -44,64 +60,74 @@ const pageCount = ref(0)
 const currentPage = ref(1)
 const zoom = ref(100)
 
-const strokesByPage = ref<Map<number, Stroke[]>>(new Map())
+const drawingsByPage = ref<Map<number, Drawing[]>>(new Map())
 const history: HistoryEntry[] = []
 let pdfDoc: pdfjs.PDFDocumentProxy | null = null
 
-function strokeCreateData(pageNum: number, stroke: Stroke): AnnotationReplacementCreate {
+function drawingCreateData(pageNum: number, drawing: Drawing): AnnotationReplacementCreate {
+  const positionData = isShapeDrawing(drawing)
+    ? {
+        tool: 'shape',
+        shapeType: drawing.shapeType,
+        width: drawing.width,
+        start: drawing.start,
+        end: drawing.end,
+      }
+    : {
+        tool: drawing.tool,
+        width: drawing.width,
+        points: drawing.points,
+      }
+
   return {
     page: pageNum,
     selected_text: '',
-    color: stroke.color,
+    color: drawing.color,
     type: 'drawing',
-    position_data: {
-      tool: stroke.tool,
-      width: stroke.width,
-      points: stroke.points,
-    },
+    position_data: positionData,
   }
 }
 
-async function saveStroke(pageNum: number, stroke: Stroke): Promise<Stroke> {
+async function saveDrawing(pageNum: number, drawing: Drawing): Promise<Drawing> {
   const saved = await annotationStore.create({
     document_id: props.documentId,
-    ...strokeCreateData(pageNum, stroke),
+    ...drawingCreateData(pageNum, drawing),
   })
-  return { ...stroke, id: saved.id }
+  return { ...drawing, id: saved.id }
 }
 
-async function replacePersistedStrokes(
+async function replacePersistedDrawings(
   pageNum: number,
-  deletedStrokes: Stroke[],
-  createdStrokes: Stroke[],
-): Promise<Stroke[]> {
-  const deleteIDs = deletedStrokes
-    .map((stroke) => stroke.id)
+  deletedDrawings: Drawing[],
+  createdDrawings: Drawing[],
+): Promise<Drawing[]> {
+  const deleteIDs = deletedDrawings
+    .map((drawing) => drawing.id)
     .filter((id): id is number => id !== undefined)
-  if (deleteIDs.length !== deletedStrokes.length) {
-    throw new Error('存在尚未保存的笔迹，无法执行批量替换')
+  if (deleteIDs.length !== deletedDrawings.length) {
+    throw new Error('存在尚未保存的批注，无法执行批量替换')
   }
 
   const created = await annotationStore.replace({
     document_id: props.documentId,
     delete_ids: deleteIDs,
-    creates: createdStrokes.map((stroke) => strokeCreateData(pageNum, stroke)),
+    creates: createdDrawings.map((drawing) => drawingCreateData(pageNum, drawing)),
   })
   return created.map((annotation, index) => ({
-    ...createdStrokes[index],
+    ...createdDrawings[index],
     id: annotation.id,
   }))
 }
 
-function setPageStrokes(pageNum: number, strokes: Stroke[]) {
-  strokesByPage.value.set(pageNum, [...strokes])
+function setPageDrawings(pageNum: number, drawings: Drawing[]) {
+  drawingsByPage.value.set(pageNum, [...drawings])
 }
 
 function redrawPage(pageNum: number) {
   const wrapper = pageRefs.value[pageNum - 1]
   if (wrapper) {
     wrapper.clearDrawLayer()
-    wrapper.redrawStrokes()
+    wrapper.redrawDrawings()
   }
 }
 
@@ -109,66 +135,92 @@ function cancelReplacementPreview(pageNum: number) {
   pageRefs.value[pageNum - 1]?.cancelPendingReplacement()
 }
 
-async function addStroke(pageNum: number, stroke: Stroke) {
-  const strokes = strokesByPage.value.get(pageNum) || []
-  const optimisticStroke = { ...stroke }
-  setPageStrokes(pageNum, [...strokes, optimisticStroke])
+async function addDrawing(pageNum: number, drawing: Drawing) {
+  const drawings = drawingsByPage.value.get(pageNum) || []
+  const optimistic = { ...drawing }
+  setPageDrawings(pageNum, [...drawings, optimistic])
 
   try {
-    const savedStroke = await saveStroke(pageNum, stroke)
-    const current = strokesByPage.value.get(pageNum) || []
-    setPageStrokes(pageNum, current.map((item) => (item === optimisticStroke ? savedStroke : item)))
-    history.push({ type: 'draw', pageNum, stroke: savedStroke })
+    const saved = await saveDrawing(pageNum, drawing)
+    const current = drawingsByPage.value.get(pageNum) || []
+    setPageDrawings(pageNum, current.map((item) => (item === optimistic ? saved : item)))
+    history.push({ type: 'draw', pageNum, stroke: saved })
   } catch (e: any) {
     console.warn('保存批注失败:', e?.message || e)
-    setPageStrokes(
+    setPageDrawings(
       pageNum,
-      (strokesByPage.value.get(pageNum) || []).filter((item) => item !== optimisticStroke),
+      (drawingsByPage.value.get(pageNum) || []).filter((item) => item !== optimistic),
     )
   }
 }
 
-async function deleteStroke(stroke: Stroke) {
-  if (stroke.id) await annotationStore.remove(stroke.id)
+async function deleteDrawing(drawing: Drawing) {
+  if (drawing.id) await annotationStore.remove(drawing.id)
 }
 
-function loadExistingStrokes() {
-  const map = new Map<number, Stroke[]>()
+function validPoint(value: unknown): value is { x: number; y: number } {
+  if (!value || typeof value !== 'object') return false
+  const point = value as Record<string, unknown>
+  return typeof point.x === 'number' && typeof point.y === 'number'
+}
+
+function loadExistingDrawings() {
+  const map = new Map<number, Drawing[]>()
   for (const annotation of annotationStore.annotations) {
     if (annotation.type !== 'drawing') continue
     const position = (annotation.position_data || {}) as Record<string, unknown>
-    if (!Array.isArray(position.points) || position.points.length < 2) continue
+    let drawing: Drawing | null = null
 
-    const stroke: Stroke = {
-      id: annotation.id,
-      tool: position.tool === 'highlighter' ? 'highlighter' : 'pen',
-      color: annotation.color || '#FF0000',
-      width: typeof position.width === 'number' ? position.width : 3,
-      points: position.points as Stroke['points'],
+    if (
+      position.tool === 'shape' &&
+      ['line', 'arrow', 'rectangle', 'ellipse'].includes(String(position.shapeType)) &&
+      validPoint(position.start) &&
+      validPoint(position.end)
+    ) {
+      drawing = {
+        id: annotation.id,
+        tool: 'shape',
+        shapeType: position.shapeType as ShapeType,
+        color: annotation.color || '#FF0000',
+        width: typeof position.width === 'number' ? position.width : 3,
+        start: position.start,
+        end: position.end,
+      }
+    } else if (Array.isArray(position.points) && position.points.length >= 2) {
+      drawing = {
+        id: annotation.id,
+        tool: position.tool === 'highlighter' ? 'highlighter' : 'pen',
+        color: annotation.color || '#FF0000',
+        width: typeof position.width === 'number' ? position.width : 3,
+        points: position.points as Point[],
+      }
     }
+
+    if (!drawing) continue
     const existing = map.get(annotation.page) || []
-    existing.push(stroke)
+    existing.push(drawing)
     map.set(annotation.page, existing)
   }
-  strokesByPage.value = map
+  drawingsByPage.value = map
 }
 
-async function reloadStrokes(pageNum: number) {
+async function reloadDrawings(pageNum: number) {
   await annotationStore.fetchAnnotations(props.documentId)
-  loadExistingStrokes()
+  loadExistingDrawings()
   redrawPage(pageNum)
 }
 
-async function replaceStrokes(pageNum: number, replacements: StrokeReplacement[]) {
-  const strokes = strokesByPage.value.get(pageNum)
-  if (!strokes || strokes.length === 0) return
+async function replaceDrawings(pageNum: number, replacements: DrawingReplacement[]) {
+  const drawings = drawingsByPage.value.get(pageNum)
+  if (!drawings || drawings.length === 0) return
 
   const operations = replacements
     .map((replacement) => ({
       ...replacement,
-      original: strokes[replacement.index],
+      original: drawings[replacement.index],
     }))
-    .filter((operation): operation is StrokeReplacement & { original: Stroke } => Boolean(operation.original))
+    .filter((operation): operation is DrawingReplacement & { original: Drawing } =>
+      Boolean(operation.original))
   if (operations.length === 0) {
     cancelReplacementPreview(pageNum)
     return
@@ -176,7 +228,7 @@ async function replaceStrokes(pageNum: number, replacements: StrokeReplacement[]
 
   try {
     const fragmentCounts = operations.map((operation) => operation.fragments.length)
-    const savedFragments = await replacePersistedStrokes(
+    const savedFragments = await replacePersistedDrawings(
       pageNum,
       operations.map((operation) => operation.original),
       operations.flatMap((operation) => operation.fragments),
@@ -191,9 +243,10 @@ async function replaceStrokes(pageNum: number, replacements: StrokeReplacement[]
     const fragmentsByIndex = new Map(
       operations.map((operation, index) => [operation.index, savedGroups[index]]),
     )
-    const nextStrokes = strokes.flatMap((stroke, index) => fragmentsByIndex.get(index) || [stroke])
+    const nextDrawings = drawings.flatMap((drawing, index) =>
+      fragmentsByIndex.get(index) || [drawing])
 
-    setPageStrokes(pageNum, nextStrokes)
+    setPageDrawings(pageNum, nextDrawings)
     history.push({
       type: 'erase',
       pageNum,
@@ -209,9 +262,35 @@ async function replaceStrokes(pageNum: number, replacements: StrokeReplacement[]
   }
 }
 
+async function editShape(pageNum: number, index: number, shape: ShapeDrawing) {
+  const drawings = drawingsByPage.value.get(pageNum) || []
+  const original = drawings[index]
+  if (!original || !isShapeDrawing(original)) {
+    cancelReplacementPreview(pageNum)
+    return
+  }
+
+  try {
+    const replacement = (await replacePersistedDrawings(pageNum, [original], [shape]))[0]
+    const next = [...drawings]
+    next[index] = replacement
+    setPageDrawings(pageNum, next)
+    history.push({
+      type: 'edit',
+      pageNum,
+      index,
+      original,
+      replacement,
+    })
+  } catch (e: any) {
+    console.warn('保存形状编辑失败:', e?.message || e)
+    cancelReplacementPreview(pageNum)
+  }
+}
+
 async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type: 'erase' }>) {
   try {
-    const restoredOriginals = await replacePersistedStrokes(
+    const restoredOriginals = await replacePersistedDrawings(
       entry.pageNum,
       entry.replacements.flatMap((replacement) => replacement.fragments),
       entry.replacements.map((replacement) => replacement.original),
@@ -220,7 +299,7 @@ async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type
       remapStrokeInHistory(history, replacement.original, restoredOriginals[index], entryIndex)
     })
 
-    const current = strokesByPage.value.get(entry.pageNum) || []
+    const current = drawingsByPage.value.get(entry.pageNum) || []
     const fragmentIDs = new Set(
       entry.replacements.flatMap((replacement) =>
         replacement.fragments
@@ -228,12 +307,12 @@ async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type
           .filter((id): id is number => id !== undefined),
       ),
     )
-    const remaining = current.filter((stroke) => !stroke.id || !fragmentIDs.has(stroke.id))
+    const remaining = current.filter((drawing) => !drawing.id || !fragmentIDs.has(drawing.id))
     const restoredByIndex = new Map(
       entry.replacements.map((replacement, index) => [replacement.index, restoredOriginals[index]]),
     )
 
-    const result: Stroke[] = []
+    const result: Drawing[] = []
     let remainingIndex = 0
     const targetLength = remaining.length + restoredOriginals.length
     for (let index = 0; index < targetLength; index++) {
@@ -243,7 +322,7 @@ async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type
     }
     while (remainingIndex < remaining.length) result.push(remaining[remainingIndex++])
 
-    setPageStrokes(entry.pageNum, result)
+    setPageDrawings(entry.pageNum, result)
     history.splice(entryIndex, 1)
     redrawPage(entry.pageNum)
   } catch (e: any) {
@@ -252,10 +331,30 @@ async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type
   }
 }
 
+async function undoEdit(entryIndex: number, entry: Extract<HistoryEntry, { type: 'edit' }>) {
+  try {
+    const restored = (await replacePersistedDrawings(
+      entry.pageNum,
+      [entry.replacement],
+      [entry.original],
+    ))[0]
+    remapStrokeInHistory(history, entry.original, restored, entryIndex)
+
+    const current = drawingsByPage.value.get(entry.pageNum) || []
+    const next = [...current]
+    next[entry.index] = restored
+    setPageDrawings(entry.pageNum, next)
+    history.splice(entryIndex, 1)
+    redrawPage(entry.pageNum)
+  } catch (e: any) {
+    console.warn('撤销形状编辑失败:', e?.message || e)
+    redrawPage(entry.pageNum)
+  }
+}
+
 async function undoLastStroke(pageNum: number) {
   let entryIndex = history.length - 1
   while (entryIndex >= 0 && history[entryIndex].pageNum !== pageNum) entryIndex--
-
   const entry = history[entryIndex]
   if (!entry) return
 
@@ -263,18 +362,22 @@ async function undoLastStroke(pageNum: number) {
     await undoErase(entryIndex, entry)
     return
   }
+  if (entry.type === 'edit') {
+    await undoEdit(entryIndex, entry)
+    return
+  }
 
-  const strokes = strokesByPage.value.get(entry.pageNum) || []
-  setPageStrokes(
+  const drawings = drawingsByPage.value.get(entry.pageNum) || []
+  setPageDrawings(
     entry.pageNum,
-    strokes.filter((stroke) => stroke !== entry.stroke && stroke.id !== entry.stroke.id),
+    drawings.filter((drawing) => drawing !== entry.stroke && drawing.id !== entry.stroke.id),
   )
   try {
-    await deleteStroke(entry.stroke)
+    await deleteDrawing(entry.stroke)
     history.splice(entryIndex, 1)
   } catch (e: any) {
     console.warn('撤销绘制失败:', e?.message || e)
-    await reloadStrokes(entry.pageNum)
+    await reloadDrawings(entry.pageNum)
   }
   redrawPage(entry.pageNum)
 }
@@ -289,7 +392,7 @@ async function loadPDF() {
     pdfDoc = await pdfjs.getDocument({ data }).promise
     pageCount.value = pdfDoc.numPages
     await annotationStore.fetchAnnotations(props.documentId)
-    loadExistingStrokes()
+    loadExistingDrawings()
     loading.value = false
     await renderAllPages()
   } catch (e: any) {
@@ -362,15 +465,19 @@ defineExpose({ zoomIn, zoomOut, undoLastStroke, zoom, currentPage, pageCount })
         :data-page="pageNum"
         :page-num="pageNum"
         :scale="zoom / 100"
-        :strokes="strokesByPage.get(pageNum) || []"
+        :drawings="drawingsByPage.get(pageNum) || []"
         :active-tool="props.activeTool"
+        :shape-type="props.shapeType"
         :erase-mode="props.eraseMode"
         :pen-color="props.penColor"
         :pen-width="props.penWidth"
         :eraser-size="props.penWidth"
-        @stroke-created="(stroke: Stroke) => { void addStroke(pageNum, stroke) }"
-        @strokes-replaced="(replacements: StrokeReplacement[]) => {
-          void replaceStrokes(pageNum, replacements)
+        @drawing-created="(drawing: Drawing) => { void addDrawing(pageNum, drawing) }"
+        @drawings-replaced="(replacements: DrawingReplacement[]) => {
+          void replaceDrawings(pageNum, replacements)
+        }"
+        @shape-edited="(index: number, shape: ShapeDrawing) => {
+          void editShape(pageNum, index, shape)
         }"
       />
     </div>

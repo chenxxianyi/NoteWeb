@@ -11,6 +11,11 @@ export type StrokeHistoryEntry<T extends HistoryStrokeLike> =
         fragments: T[]
       }>
     }
+  | {
+      type: 'edit'
+      original: T
+      replacement: T
+    }
 
 function isSameStroke<T extends HistoryStrokeLike>(left: T, right: T): boolean {
   return left === right || (
@@ -31,6 +36,11 @@ export function remapStrokeInHistory<T extends HistoryStrokeLike>(
     const entry = history[index]
     if (entry.type === 'draw') {
       if (isSameStroke(entry.stroke, oldStroke)) entry.stroke = restoredStroke
+      continue
+    }
+    if (entry.type === 'edit') {
+      if (isSameStroke(entry.original, oldStroke)) entry.original = restoredStroke
+      if (isSameStroke(entry.replacement, oldStroke)) entry.replacement = restoredStroke
       continue
     }
 

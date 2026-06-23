@@ -6,6 +6,7 @@ import { useAnnotationStore } from '../stores/annotationStore'
 import { marked } from 'marked'
 import PDFViewer from '../components/PDFViewer.vue'
 import AnnotationToolbar from '../components/AnnotationToolbar.vue'
+import type { PDFActiveTool, ShapeType } from '../components/pdfDrawingTypes'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,7 +29,9 @@ const docBodyRef = ref<HTMLElement | null>(null)
 
 // PDF drawing state
 const pdfRef = ref<InstanceType<typeof PDFViewer> | null>(null)
-const pdfActiveTool = ref<'none' | 'pen' | 'highlighter' | 'eraser'>('none')
+const pdfActiveTool = ref<PDFActiveTool>('none')
+const pdfShapeType = ref<ShapeType>('rectangle')
+const pdfShapeMenuOpen = ref(false)
 const pdfPenColor = ref('#FF0000')
 const pdfPenWidth = ref(3)
 const pdfEraserSize = ref(24)
@@ -37,8 +40,22 @@ const pdfZoom = ref(100)
 const pdfCurPage = ref(1)
 const pdfPageCount = ref(1)
 
-function pdfSwitchTool(tool: 'none' | 'pen' | 'highlighter' | 'eraser') {
+const pdfUsesStyle = computed(() =>
+  pdfActiveTool.value === 'pen' ||
+  pdfActiveTool.value === 'highlighter' ||
+  pdfActiveTool.value === 'shape')
+
+function pdfSwitchTool(tool: PDFActiveTool) {
   pdfActiveTool.value = pdfActiveTool.value === tool ? 'none' : tool
+  if (tool !== 'shape') pdfShapeMenuOpen.value = false
+}
+function pdfToggleShapeMenu() {
+  pdfShapeMenuOpen.value = !pdfShapeMenuOpen.value
+}
+function pdfChooseShape(shapeType: ShapeType) {
+  pdfShapeType.value = shapeType
+  pdfActiveTool.value = 'shape'
+  pdfShapeMenuOpen.value = false
 }
 function pdfToggleEraseMode() {
   pdfEraseMode.value = pdfEraseMode.value === 'freehand' ? 'area' : 'freehand'
@@ -291,6 +308,28 @@ onUnmounted(() => {
         <button :class="['tb-btn', { active: pdfActiveTool === 'highlighter' }]" title="荧光笔" @click="pdfSwitchTool('highlighter')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 11l-6 6v3h9l3-23"/><path d="M9 3h-2l-7 14h2l7-14z"/></svg>
         </button>
+        <button :class="['tb-btn', { active: pdfActiveTool === 'select' }]" title="选择形状" @click="pdfSwitchTool('select')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M5 3l14 8-6 2-3 6z"/></svg>
+        </button>
+        <div class="shape-tool-wrap">
+          <button :class="['tb-btn', { active: pdfActiveTool === 'shape' }]" title="形状" @click="pdfToggleShapeMenu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="5" width="11" height="11" rx="1"/><circle cx="16.5" cy="14.5" r="4.5"/></svg>
+          </button>
+          <div v-if="pdfShapeMenuOpen" class="shape-menu">
+            <button :class="{ active: pdfShapeType === 'line' }" @click="pdfChooseShape('line')">
+              <svg viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="4"/></svg><span>直线</span>
+            </button>
+            <button :class="{ active: pdfShapeType === 'arrow' }" @click="pdfChooseShape('arrow')">
+              <svg viewBox="0 0 24 24"><line x1="4" y1="20" x2="19" y2="5"/><polyline points="11,5 19,5 19,13"/></svg><span>箭头</span>
+            </button>
+            <button :class="{ active: pdfShapeType === 'rectangle' }" @click="pdfChooseShape('rectangle')">
+              <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/></svg><span>矩形</span>
+            </button>
+            <button :class="{ active: pdfShapeType === 'ellipse' }" @click="pdfChooseShape('ellipse')">
+              <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="6"/></svg><span>椭圆</span>
+            </button>
+          </div>
+        </div>
         <button :class="['tb-btn', { active: pdfActiveTool === 'eraser' }]" title="橡皮擦" @click="pdfSwitchTool('eraser')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.5 1.7c.8-.8 2-.8 2.8 0L20 4.3c.8.8.8 2 0 2.8L8.5 18.7"/></svg>
         </button>
@@ -301,8 +340,8 @@ onUnmounted(() => {
         <button class="tb-btn" title="撤销" @click="pdfUndo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
         </button>
-        <input v-if="pdfActiveTool !== 'none'" type="color" v-model="pdfPenColor" class="tb-color-picker" title="颜色" />
-        <input v-if="pdfActiveTool !== 'none'" type="range" v-model.number="pdfPenWidth" class="tb-size-slider" min="1" max="20" title="粗细" />
+        <input v-if="pdfUsesStyle" type="color" v-model="pdfPenColor" class="tb-color-picker" title="颜色" />
+        <input v-if="pdfUsesStyle" type="range" v-model.number="pdfPenWidth" class="tb-size-slider" min="1" max="20" title="粗细" />
         <div class="tb-divider"></div>
         <span class="tb-label">{{ pdfCurPage }}/{{ pdfPageCount }}</span>
         <button class="tb-btn" title="缩小" @click="pdfZoomOut">
@@ -411,6 +450,7 @@ onUnmounted(() => {
         ref="pdfRef"
         :document-id="capturedDocId"
         :active-tool="pdfActiveTool"
+        :shape-type="pdfShapeType"
         :erase-mode="pdfEraseMode"
         :pen-color="pdfPenColor"
         :pen-width="pdfActiveTool === 'eraser' ? pdfEraserSize : pdfPenWidth"
@@ -459,6 +499,38 @@ onUnmounted(() => {
 .reader-topbar.eraser-active .tb-size-slider:not(.tb-size-slider--eraser) {
   display: none;
 }
+.shape-tool-wrap { position: relative; display: flex; }
+.shape-menu {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  gap: 0.35rem;
+  padding: 0.45rem;
+  min-width: 160px;
+  background: rgba(250,248,245,0.98);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(61,46,36,0.16);
+}
+.shape-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.shape-menu button:hover,
+.shape-menu button.active { background: var(--accent-light); color: var(--accent); }
+.shape-menu svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 
 .panel-left, .panel-right { position: fixed; top: 0; bottom: 0; width: 300px; background: var(--bg-card); z-index: 20; transition: transform 0.3s; display: flex; flex-direction: column; }
 .panel-left { left: 0; border-right: 1px solid var(--border-color); transform: translateX(-100%); }

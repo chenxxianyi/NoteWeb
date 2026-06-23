@@ -11,26 +11,46 @@ import {
   splitStrokeByRect,
 } from './pdfAnnotationGeometry'
 import type { Bounds } from './pdfAnnotationGeometry'
+import {
+  isFreehandStroke,
+  isShapeDrawing,
+} from './pdfDrawingTypes'
+import type {
+  Drawing,
+  DrawingReplacement,
+  FreehandStroke,
+  PDFActiveTool,
+  Point,
+  ShapeDrawing,
+  ShapeType,
+} from './pdfDrawingTypes'
+import {
+  getShapeBounds,
+  getShapeHandles,
+  hitTestShape,
+  hitTestShapeHandle,
+  moveShape,
+  resizeShape,
+  shapeToContours,
+  splitShapeByEraserPath,
+  splitShapeByRect,
+} from './pdfShapeGeometry'
+import type { ShapeHandle } from './pdfShapeGeometry'
 
-export interface Point { x: number; y: number }
-export interface Stroke {
-  id?: number
-  tool: 'pen' | 'highlighter'
-  color: string
-  width: number
-  points: Point[]
-}
-
-export interface StrokeReplacement {
-  index: number
-  fragments: Stroke[]
+export type {
+  Drawing,
+  DrawingReplacement,
+  FreehandStroke,
+  Point,
+  ShapeDrawing,
 }
 
 const props = defineProps<{
   pageNum: number
   scale: number
-  strokes: Stroke[]
-  activeTool: 'none' | 'pen' | 'highlighter' | 'eraser'
+  drawings: Drawing[]
+  activeTool: PDFActiveTool
+  shapeType: ShapeType
   eraseMode: 'freehand' | 'area'
   penColor: string
   penWidth: number
@@ -38,30 +58,44 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  strokeCreated: [stroke: Stroke]
-  strokesReplaced: [replacements: StrokeReplacement[]]
+  drawingCreated: [drawing: Drawing]
+  drawingsReplaced: [replacements: DrawingReplacement[]]
+  shapeEdited: [index: number, shape: ShapeDrawing]
 }>()
+
+interface ShapeEditGesture {
+  index: number
+  mode: 'move' | 'resize'
+  handle: ShapeHandle | null
+  originPoint: Point
+  original: ShapeDrawing
+  preview: ShapeDrawing
+}
 
 const pdfCanvas = ref<HTMLCanvasElement | null>(null)
 const drawCanvas = ref<HTMLCanvasElement | null>(null)
+const overlayCanvas = ref<HTMLCanvasElement | null>(null)
 const eraserCursor = ref<HTMLElement | null>(null)
 const areaSelection = ref<HTMLElement | null>(null)
 
 let pdfPage: pdfjs.PDFPageProxy | null = null
 let isDrawing = false
-let currentStroke: Stroke | null = null
+let currentStroke: FreehandStroke | null = null
+let currentShape: ShapeDrawing | null = null
+let selectedShapeIndex: number | null = null
+let shapeEdit: ShapeEditGesture | null = null
 let eraserPath: Point[] = []
 let queuedPreviewPoints: Point[] = []
 let lastPreviewPoint: Point | null = null
 let previewFrame: number | null = null
-let pendingReplacements: StrokeReplacement[] = []
+let pendingReplacements: DrawingReplacement[] = []
 let awaitingReplacementCommit = false
 let gestureRect: DOMRect | null = null
 let areaStart: Point | null = null
 let areaEnd: Point | null = null
 
-const strokeBoundsCache = new WeakMap<Stroke, Bounds | null>()
-const strokePathCache = new WeakMap<Stroke, Path2D>()
+const drawingBoundsCache = new WeakMap<Drawing, Bounds | null>()
+const drawingPathCache = new WeakMap<Drawing, Path2D>()
 
 async function renderPDF(pdfDoc: pdfjs.PDFDocumentProxy) {
   const canvas = pdfCanvas.value
@@ -75,30 +109,53 @@ async function renderPDF(pdfDoc: pdfjs.PDFDocumentProxy) {
   if (!ctx) return
   await page.render({ canvas, canvasContext: ctx, viewport }).promise
 
-  const dc = drawCanvas.value
-  if (dc) {
-    dc.width = viewport.width
-    dc.height = viewport.height
+  for (const layer of [drawCanvas.value, overlayCanvas.value]) {
+    if (layer) {
+      layer.width = viewport.width
+      layer.height = viewport.height
+    }
   }
-  redrawStrokes()
+  redrawDrawings()
+  redrawSelection()
 }
 
-function getStrokePath(stroke: Stroke): Path2D {
-  const cached = strokePathCache.get(stroke)
+function drawingContours(drawing: Drawing): Point[][] {
+  return isShapeDrawing(drawing)
+    ? shapeToContours(drawing)
+    : [drawing.points]
+}
+
+function getDrawingPath(drawing: Drawing): Path2D {
+  const cached = drawingPathCache.get(drawing)
   if (cached) return cached
 
   const path = new Path2D()
-  if (stroke.points.length > 0) {
-    path.moveTo(stroke.points[0].x, stroke.points[0].y)
-    for (let index = 1; index < stroke.points.length; index++) {
-      path.lineTo(stroke.points[index].x, stroke.points[index].y)
+  for (const contour of drawingContours(drawing)) {
+    if (contour.length === 0) continue
+    path.moveTo(contour[0].x, contour[0].y)
+    for (let index = 1; index < contour.length; index++) {
+      path.lineTo(contour[index].x, contour[index].y)
     }
   }
-  strokePathCache.set(stroke, path)
+  drawingPathCache.set(drawing, path)
   return path
 }
 
-function redrawStrokes(previewReplacements: StrokeReplacement[] = []) {
+function drawDrawing(ctx: CanvasRenderingContext2D, drawing: Drawing) {
+  ctx.save()
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = drawing.color
+  ctx.lineWidth = drawing.width
+  if (drawing.tool === 'highlighter') ctx.globalAlpha = 0.35
+  ctx.stroke(getDrawingPath(drawing))
+  ctx.restore()
+}
+
+function redrawDrawings(
+  previewReplacements: DrawingReplacement[] = [],
+  excludeIndex: number | null = null,
+) {
   const canvas = drawCanvas.value
   if (!canvas) return
   const ctx = canvas.getContext('2d')
@@ -108,26 +165,82 @@ function redrawStrokes(previewReplacements: StrokeReplacement[] = []) {
   const replacementMap = new Map(
     previewReplacements.map((replacement) => [replacement.index, replacement.fragments]),
   )
-  for (let index = 0; index < props.strokes.length; index++) {
+  for (let index = 0; index < props.drawings.length; index++) {
+    if (index === excludeIndex) continue
     const fragments = replacementMap.get(index)
     if (fragments) {
-      for (const fragment of fragments) drawStroke(ctx, fragment)
+      for (const fragment of fragments) drawDrawing(ctx, fragment)
     } else {
-      drawStroke(ctx, props.strokes[index])
+      drawDrawing(ctx, props.drawings[index])
     }
   }
 }
 
-function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-  if (stroke.points.length < 2) return
+function clearOverlay() {
+  const canvas = overlayCanvas.value
+  const ctx = canvas?.getContext('2d')
+  if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+}
+
+function canvasUnits(screenPixels: number): number {
+  const canvas = drawCanvas.value
+  if (!canvas) return screenPixels
+  const rect = currentCanvasRect()
+  return screenPixels * (canvas.width / rect.width)
+}
+
+function drawShapeOverlay(shape: ShapeDrawing, includeShape: boolean, includeHandles: boolean) {
+  const canvas = overlayCanvas.value
+  const ctx = canvas?.getContext('2d')
+  if (!canvas || !ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+  if (includeShape) drawDrawing(ctx, shape)
+  if (!includeHandles) return
+
+  const bounds = getShapeBounds(shape)
+  const padding = shape.width / 2
   ctx.save()
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-  ctx.strokeStyle = stroke.color
-  ctx.lineWidth = stroke.width
-  if (stroke.tool === 'highlighter') ctx.globalAlpha = 0.35
-  ctx.stroke(getStrokePath(stroke))
+  ctx.strokeStyle = '#2563eb'
+  ctx.lineWidth = canvasUnits(1)
+  ctx.setLineDash([canvasUnits(5), canvasUnits(3)])
+  ctx.strokeRect(
+    bounds.left + padding,
+    bounds.top + padding,
+    Math.max(0, bounds.right - bounds.left - shape.width),
+    Math.max(0, bounds.bottom - bounds.top - shape.width),
+  )
+  ctx.setLineDash([])
+  const radius = canvasUnits(4.5)
+  for (const handle of getShapeHandles(shape)) {
+    ctx.beginPath()
+    ctx.fillStyle = '#ffffff'
+    ctx.strokeStyle = '#2563eb'
+    ctx.lineWidth = canvasUnits(1.5)
+    ctx.arc(handle.point.x, handle.point.y, radius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
   ctx.restore()
+}
+
+function selectedShape(): ShapeDrawing | null {
+  if (selectedShapeIndex === null) return null
+  const drawing = props.drawings[selectedShapeIndex]
+  return drawing && isShapeDrawing(drawing) ? drawing : null
+}
+
+function redrawSelection() {
+  if (shapeEdit) {
+    drawShapeOverlay(shapeEdit.preview, true, true)
+    return
+  }
+  const shape = selectedShape()
+  if (shape && props.activeTool === 'select') {
+    drawShapeOverlay(shape, false, true)
+  } else {
+    clearOverlay()
+  }
 }
 
 function currentCanvasRect(): DOMRect {
@@ -238,49 +351,59 @@ function finishPreviewFrame() {
   flushFreehandPreview()
 }
 
-function getCachedStrokeBounds(stroke: Stroke): Bounds | null {
-  if (strokeBoundsCache.has(stroke)) return strokeBoundsCache.get(stroke) || null
-  const bounds = getStrokeBounds(stroke)
-  strokeBoundsCache.set(stroke, bounds)
+function getDrawingBounds(drawing: Drawing): Bounds | null {
+  if (drawingBoundsCache.has(drawing)) return drawingBoundsCache.get(drawing) || null
+  const bounds = isShapeDrawing(drawing)
+    ? getShapeBounds(drawing)
+    : getStrokeBounds(drawing)
+  drawingBoundsCache.set(drawing, bounds)
   return bounds
 }
 
-function pointsEqual(a: Point[], b: Point[]): boolean {
-  return a.length === b.length && a.every((point, index) =>
-    point.x === b[index].x && point.y === b[index].y)
+function splitDrawingByPath(drawing: Drawing, path: Point[], radius: number): Drawing[] {
+  if (isFreehandStroke(drawing)) {
+    return splitStrokeByEraserPath(drawing, path, radius)
+  }
+  return splitShapeByEraserPath(drawing, path, radius) || [drawing]
+}
+
+function splitDrawingByRect(drawing: Drawing, start: Point, end: Point): Drawing[] {
+  if (isFreehandStroke(drawing)) {
+    return splitStrokeByRect(drawing, start, end)
+  }
+  return splitShapeByRect(drawing, start, end) || [drawing]
 }
 
 function collectReplacements(
   gestureBounds: Bounds | null,
-  split: (stroke: Stroke) => Stroke[],
-): StrokeReplacement[] {
+  split: (drawing: Drawing) => Drawing[],
+): DrawingReplacement[] {
   if (!gestureBounds) return []
-  const replacements: StrokeReplacement[] = []
-  for (let index = 0; index < props.strokes.length; index++) {
-    const stroke = props.strokes[index]
-    const bounds = getCachedStrokeBounds(stroke)
+  const replacements: DrawingReplacement[] = []
+  for (let index = 0; index < props.drawings.length; index++) {
+    const drawing = props.drawings[index]
+    const bounds = getDrawingBounds(drawing)
     if (!bounds || !boundsIntersect(bounds, gestureBounds)) continue
-
-    const fragments = split(stroke)
-    const unchanged = fragments.length === 1 && pointsEqual(fragments[0].points, stroke.points)
+    const fragments = split(drawing)
+    const unchanged = fragments.length === 1 && fragments[0] === drawing
     if (!unchanged) replacements.push({ index, fragments })
   }
   return replacements
 }
 
-function findFreehandReplacements(path: Point[]): StrokeReplacement[] {
+function findFreehandReplacements(path: Point[]): DrawingReplacement[] {
   const radius = eraserRadius()
   const simplifiedPath = simplifyPathByDistance(path, Math.max(2, radius * 0.35))
   return collectReplacements(
     getPathBounds(simplifiedPath, radius),
-    (stroke) => splitStrokeByEraserPath(stroke, simplifiedPath, radius),
+    (drawing) => splitDrawingByPath(drawing, simplifiedPath, radius),
   )
 }
 
-function findAreaReplacements(start: Point, end: Point): StrokeReplacement[] {
+function findAreaReplacements(start: Point, end: Point): DrawingReplacement[] {
   return collectReplacements(
     getPathBounds([start, end]),
-    (stroke) => splitStrokeByRect(stroke, start, end),
+    (drawing) => splitDrawingByRect(drawing, start, end),
   )
 }
 
@@ -293,9 +416,47 @@ function resetGestureState(redraw = false) {
   areaStart = null
   areaEnd = null
   gestureRect = null
+  currentShape = null
+  shapeEdit = null
   updateEraserCursor({ clientX: 0, clientY: 0 }, false)
   hideAreaSelection()
-  if (redraw) redrawStrokes()
+  if (redraw) {
+    redrawDrawings()
+    redrawSelection()
+  }
+}
+
+function finishPointerCapture(event: PointerEvent) {
+  if (drawCanvas.value?.hasPointerCapture(event.pointerId)) {
+    drawCanvas.value.releasePointerCapture(event.pointerId)
+  }
+}
+
+function topmostShapeAt(point: Point, tolerance: number): number | null {
+  for (let index = props.drawings.length - 1; index >= 0; index--) {
+    const drawing = props.drawings[index]
+    if (isShapeDrawing(drawing) && hitTestShape(drawing, point, tolerance)) return index
+  }
+  return null
+}
+
+function startShapeEdit(
+  index: number,
+  shape: ShapeDrawing,
+  point: Point,
+  handle: ShapeHandle | null,
+) {
+  selectedShapeIndex = index
+  shapeEdit = {
+    index,
+    mode: handle ? 'resize' : 'move',
+    handle,
+    originPoint: point,
+    original: shape,
+    preview: shape,
+  }
+  redrawDrawings([], index)
+  drawShapeOverlay(shape, true, true)
 }
 
 function onPointerDown(event: PointerEvent) {
@@ -306,6 +467,8 @@ function onPointerDown(event: PointerEvent) {
   const point = pageToCanvas(event)
 
   if (props.activeTool === 'eraser') {
+    selectedShapeIndex = null
+    clearOverlay()
     pendingReplacements = []
     if (props.eraseMode === 'area') {
       areaStart = point
@@ -315,6 +478,45 @@ function onPointerDown(event: PointerEvent) {
       appendEraserPoint(point)
       updateEraserCursor(event)
       scheduleFreehandPreview()
+    }
+    return
+  }
+
+  if (props.activeTool === 'shape') {
+    selectedShapeIndex = null
+    currentShape = {
+      tool: 'shape',
+      shapeType: props.shapeType,
+      color: props.penColor,
+      width: props.penWidth,
+      start: point,
+      end: point,
+    }
+    drawShapeOverlay(currentShape, true, false)
+    return
+  }
+
+  if (props.activeTool === 'select') {
+    const tolerance = canvasUnits(8)
+    const selected = selectedShape()
+    if (selected && selectedShapeIndex !== null) {
+      const handle = hitTestShapeHandle(selected, point, tolerance)
+      if (handle || hitTestShape(selected, point, tolerance)) {
+        startShapeEdit(selectedShapeIndex, selected, point, handle)
+        return
+      }
+    }
+
+    const hitIndex = topmostShapeAt(point, tolerance)
+    if (hitIndex !== null) {
+      const shape = props.drawings[hitIndex] as ShapeDrawing
+      startShapeEdit(hitIndex, shape, point, null)
+    } else {
+      selectedShapeIndex = null
+      clearOverlay()
+      isDrawing = false
+      finishPointerCapture(event)
+      gestureRect = null
     }
     return
   }
@@ -336,7 +538,6 @@ function onPointerMove(event: PointerEvent) {
       if (areaStart) updateAreaSelection(areaStart, areaEnd)
       return
     }
-
     const events = event.getCoalescedEvents?.() || []
     const samples = events.length > 0 ? events : [event]
     for (const sample of samples) appendEraserPoint(pageToCanvas(sample))
@@ -346,9 +547,26 @@ function onPointerMove(event: PointerEvent) {
   }
 
   const point = pageToCanvas(event)
+  if (props.activeTool === 'shape' && currentShape) {
+    currentShape = { ...currentShape, end: point }
+    drawShapeOverlay(currentShape, true, false)
+    return
+  }
+
+  if (props.activeTool === 'select' && shapeEdit) {
+    shapeEdit.preview = shapeEdit.mode === 'move'
+      ? moveShape(
+          shapeEdit.original,
+          point.x - shapeEdit.originPoint.x,
+          point.y - shapeEdit.originPoint.y,
+        )
+      : resizeShape(shapeEdit.original, shapeEdit.handle!, point)
+    drawShapeOverlay(shapeEdit.preview, true, true)
+    return
+  }
+
   if (!currentStroke) return
   currentStroke.points.push(point)
-
   const ctx = drawCanvas.value.getContext('2d')
   if (!ctx) return
   ctx.save()
@@ -365,28 +583,32 @@ function onPointerMove(event: PointerEvent) {
   ctx.restore()
 }
 
+function shapesEqual(left: ShapeDrawing, right: ShapeDrawing): boolean {
+  return left.start.x === right.start.x &&
+    left.start.y === right.start.y &&
+    left.end.x === right.end.x &&
+    left.end.y === right.end.y
+}
+
 function onPointerUp(event: PointerEvent) {
   if (!isDrawing) return
   isDrawing = false
-  if (drawCanvas.value?.hasPointerCapture(event.pointerId)) {
-    drawCanvas.value.releasePointerCapture(event.pointerId)
-  }
+  finishPointerCapture(event)
 
   if (props.activeTool === 'eraser') {
     if (props.eraseMode === 'area') {
       if (areaStart && areaEnd) pendingReplacements = findAreaReplacements(areaStart, areaEnd)
       hideAreaSelection()
-      if (pendingReplacements.length > 0) redrawStrokes(pendingReplacements)
+      if (pendingReplacements.length > 0) redrawDrawings(pendingReplacements)
     } else {
       finishPreviewFrame()
       pendingReplacements = findFreehandReplacements(eraserPath)
       updateEraserCursor(event, false)
     }
-
     gestureRect = null
     if (pendingReplacements.length > 0) {
       awaitingReplacementCommit = true
-      emit('strokesReplaced', pendingReplacements)
+      emit('drawingsReplaced', pendingReplacements)
     } else {
       pendingReplacements = []
       resetGestureState(true)
@@ -394,8 +616,34 @@ function onPointerUp(event: PointerEvent) {
     return
   }
 
+  if (props.activeTool === 'shape' && currentShape) {
+    const created = currentShape
+    currentShape = null
+    gestureRect = null
+    clearOverlay()
+    if (distance(created.start, created.end) >= canvasUnits(3)) {
+      emit('drawingCreated', created)
+    }
+    return
+  }
+
+  if (props.activeTool === 'select' && shapeEdit) {
+    const edit = shapeEdit
+    shapeEdit = null
+    gestureRect = null
+    if (!shapesEqual(edit.original, edit.preview)) {
+      awaitingReplacementCommit = true
+      drawShapeOverlay(edit.preview, true, true)
+      emit('shapeEdited', edit.index, edit.preview)
+    } else {
+      redrawDrawings()
+      redrawSelection()
+    }
+    return
+  }
+
   if (currentStroke && currentStroke.points.length > 1) {
-    emit('strokeCreated', { ...currentStroke, points: [...currentStroke.points] })
+    emit('drawingCreated', { ...currentStroke, points: [...currentStroke.points] })
   }
   currentStroke = null
   gestureRect = null
@@ -404,45 +652,49 @@ function onPointerUp(event: PointerEvent) {
 function onPointerCancel(event: PointerEvent) {
   if (!isDrawing) return
   isDrawing = false
-  if (drawCanvas.value?.hasPointerCapture(event.pointerId)) {
-    drawCanvas.value.releasePointerCapture(event.pointerId)
-  }
+  finishPointerCapture(event)
   currentStroke = null
   pendingReplacements = []
   resetGestureState(true)
 }
 
-watch(() => props.strokes, () => {
+watch(() => props.drawings, () => {
+  if (selectedShapeIndex !== null && selectedShapeIndex >= props.drawings.length) {
+    selectedShapeIndex = null
+  }
   if (awaitingReplacementCommit) {
     awaitingReplacementCommit = false
     pendingReplacements = []
     resetGestureState()
   }
-  redrawStrokes()
+  redrawDrawings()
+  redrawSelection()
 })
 
-watch(() => [props.activeTool, props.eraseMode], () => {
+watch(() => [props.activeTool, props.eraseMode, props.shapeType], () => {
   if (isDrawing || awaitingReplacementCommit) return
   pendingReplacements = []
+  if (props.activeTool !== 'select') selectedShapeIndex = null
   resetGestureState(true)
 })
 
 watch(() => props.scale, () => {
   if (pdfPage) {
     const viewport = pdfPage.getViewport({ scale: props.scale })
-    const canvas = drawCanvas.value
-    if (canvas) {
-      canvas.width = viewport.width
-      canvas.height = viewport.height
+    for (const canvas of [drawCanvas.value, overlayCanvas.value]) {
+      if (canvas) {
+        canvas.width = viewport.width
+        canvas.height = viewport.height
+      }
     }
   }
 })
 
 function clearDrawLayer() {
-  const canvas = drawCanvas.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+  for (const canvas of [drawCanvas.value, overlayCanvas.value]) {
+    const ctx = canvas?.getContext('2d')
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
+  }
 }
 
 function cancelPendingReplacement() {
@@ -451,7 +703,7 @@ function cancelPendingReplacement() {
   resetGestureState(true)
 }
 
-defineExpose({ renderPDF, redrawStrokes, clearDrawLayer, cancelPendingReplacement })
+defineExpose({ renderPDF, redrawDrawings, clearDrawLayer, cancelPendingReplacement })
 </script>
 
 <template>
@@ -459,12 +711,16 @@ defineExpose({ renderPDF, redrawStrokes, clearDrawLayer, cancelPendingReplacemen
     <canvas ref="pdfCanvas" class="pdf-page-layer" />
     <canvas
       ref="drawCanvas"
-      :class="['pdf-draw-layer', { 'pdf-draw-layer--eraser': activeTool === 'eraser' }]"
+      :class="[
+        'pdf-draw-layer',
+        `pdf-draw-layer--${activeTool}`,
+      ]"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerCancel"
     />
+    <canvas ref="overlayCanvas" class="pdf-overlay-layer" />
     <div ref="eraserCursor" class="eraser-cursor" />
     <div ref="areaSelection" class="eraser-area-selection" />
   </div>
@@ -481,21 +737,35 @@ defineExpose({ renderPDF, redrawStrokes, clearDrawLayer, cancelPendingReplacemen
 }
 
 .pdf-page-layer,
-.pdf-draw-layer {
+.pdf-draw-layer,
+.pdf-overlay-layer {
   display: block;
   max-width: 100%;
   height: auto;
 }
 
-.pdf-draw-layer {
+.pdf-draw-layer,
+.pdf-overlay-layer {
   position: absolute;
   top: 0;
   left: 0;
+}
+
+.pdf-draw-layer {
   cursor: crosshair;
 }
 
 .pdf-draw-layer--eraser {
   cursor: none;
+}
+
+.pdf-draw-layer--select {
+  cursor: default;
+}
+
+.pdf-overlay-layer {
+  pointer-events: none;
+  z-index: 1;
 }
 
 .eraser-cursor,

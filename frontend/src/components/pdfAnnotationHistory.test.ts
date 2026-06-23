@@ -15,6 +15,11 @@ type TestHistoryEntry =
         fragments: TestStroke[]
       }>
     }
+  | {
+      type: 'edit'
+      original: TestStroke
+      replacement: TestStroke
+    }
 
 let historyModule: Record<string, unknown> = {}
 try {
@@ -58,4 +63,22 @@ test('restoring a stroke remaps earlier draw and erase history references to its
   assert.equal(eraseEntry.replacements[0].fragments[0], restoredStroke)
   assert.equal(eraseEntry.replacements[0].fragments[1], sibling)
   assert.equal((history[2] as Extract<TestHistoryEntry, { type: 'draw' }>).stroke, oldStroke)
+})
+
+test('restoring a drawing remaps earlier edit history references', () => {
+  assert.equal(typeof remapStrokeInHistory, 'function')
+  const oldShape = { id: 20, label: 'old shape' }
+  const restoredShape = { id: 80, label: 'restored shape' }
+  const previous = { id: 19, label: 'previous state' }
+  const history: TestHistoryEntry[] = [
+    { type: 'edit', original: previous, replacement: oldShape },
+    { type: 'edit', original: oldShape, replacement: { id: 21, label: 'next state' } },
+  ]
+
+  remapStrokeInHistory!(history, oldShape, restoredShape, 2)
+
+  const first = history[0] as Extract<TestHistoryEntry, { type: 'edit' }>
+  const second = history[1] as Extract<TestHistoryEntry, { type: 'edit' }>
+  assert.equal(first.replacement, restoredShape)
+  assert.equal(second.original, restoredShape)
 })
