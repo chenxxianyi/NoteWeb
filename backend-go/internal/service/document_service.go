@@ -152,3 +152,42 @@ func (s *DocumentService) Delete(docID, userID uint) error {
 	}
 	return s.repo.SoftDelete(docID)
 }
+
+// GetContent returns the parsed text content of a document.
+func (s *DocumentService) GetContent(docID, userID uint) (*DocumentDetailResponse, error) {
+	doc, err := s.repo.GetByID(docID)
+	if err != nil || doc.UserID != userID {
+		return nil, errors.New("文档不存在")
+	}
+	return &DocumentDetailResponse{
+		ID: doc.ID, Title: doc.Title, FileName: doc.FileName,
+		FileType: doc.FileType, MimeType: doc.MimeType, FileSize: doc.FileSize,
+		ParsedContent: doc.ParsedContent, PageCount: doc.PageCount, WordCount: doc.WordCount,
+		ReadProgress: doc.ReadProgress,
+		CreatedAt: doc.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: doc.UpdatedAt.Format(time.RFC3339),
+	}, nil
+}
+
+// GetFileData returns the original file bytes and its MIME type.
+func (s *DocumentService) GetFileData(docID, userID uint) ([]byte, string, error) {
+	doc, err := s.repo.GetByID(docID)
+	if err != nil || doc.UserID != userID {
+		return nil, "", errors.New("文档不存在")
+	}
+	savePath := filepath.Join(s.uploadDir, doc.StoragePath)
+	data, err := os.ReadFile(savePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("文件读取失败: %w", err)
+	}
+	return data, doc.MimeType, nil
+}
+
+// UpdateReadProgress sets the document's read progress (0–100).
+func (s *DocumentService) UpdateReadProgress(docID, userID uint, progress float64) error {
+	doc, err := s.repo.GetByID(docID)
+	if err != nil || doc.UserID != userID {
+		return errors.New("文档不存在")
+	}
+	return s.repo.UpdateReadProgress(docID, progress)
+}

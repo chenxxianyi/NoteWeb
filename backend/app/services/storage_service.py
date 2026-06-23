@@ -48,6 +48,19 @@ class StorageService:
         except Exception:
             pass
 
+    def get_bytes(self, object_name: str) -> bytes | None:
+        """Download object from MinIO and return its bytes."""
+        if self.client is None:
+            return None
+        try:
+            response = self.client.get_object(settings.MINIO_BUCKET, object_name)
+            data = response.read()
+            response.close()
+            response.release_conn()
+            return data
+        except Exception:
+            return None
+
     def get_url(self, object_name: str) -> str:
         if self.client is None:
             return ""

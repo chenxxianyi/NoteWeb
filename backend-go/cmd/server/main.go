@@ -73,8 +73,11 @@ func main() {
 		docs := protected.Group("/documents")
 		docs.GET("", docH.List)
 		docs.GET("/:id", docH.Get)
+		docs.GET("/:id/content", docH.GetContent)
+		docs.GET("/:id/file", docH.GetFile)
 		docs.POST("/upload", docH.Upload)
 		docs.PATCH("/:id", docH.Rename)
+		docs.PATCH("/:id/read-progress", docH.UpdateReadProgress)
 		docs.DELETE("/:id", docH.Delete)
 
 		protected.GET("/documents/:id/annotations", annH.ListByDocument)

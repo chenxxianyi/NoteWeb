@@ -67,5 +67,32 @@ export const useDocumentStore = defineStore('document', () => {
     if (doc) doc.title = title
   }
 
-  return { documents, currentDocument, documentContent, loading, error, fetchDocuments, fetchDocument, fetchDocumentContent, upload, remove, rename }
+  async function markAsRead(id: number) {
+    try {
+      await documentApi.markDocumentAsRead(id)
+      const doc = documents.value.find((d) => d.id === id)
+      if (doc && doc.read_progress === 0) {
+        doc.read_progress = 1.0
+      }
+    } catch {
+      // non-critical — silently fail
+    }
+  }
+
+  async function updateProgress(id: number, progress: number) {
+    // Clamp 0–100
+    const p = Math.max(0, Math.min(100, progress))
+    try {
+      await documentApi.updateReadProgress(id, p)
+      const doc = documents.value.find((d) => d.id === id)
+      if (doc) {
+        doc.read_progress = p
+      }
+      console.log(`[Store] ✅ Progress saved: doc=${id} progress=${p}%`)
+    } catch (e: any) {
+      console.error(`[Store] ❌ Failed to save progress:`, e?.response?.status, e?.response?.data || e?.message)
+    }
+  }
+
+  return { documents, currentDocument, documentContent, loading, error, fetchDocuments, fetchDocument, fetchDocumentContent, upload, remove, rename, markAsRead, updateProgress }
 })

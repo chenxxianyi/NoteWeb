@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, get_current_user
@@ -30,6 +31,30 @@ def get_document(
 ):
     svc = DocumentService(db)
     return svc.get_document(document_id, current_user)
+
+
+@router.get("/{document_id}/content")
+def get_document_content(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    svc = DocumentService(db)
+    return svc.get_content(document_id, current_user)
+
+
+@router.get("/{document_id}/file")
+def get_document_file(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    svc = DocumentService(db)
+    data, mime_type = svc.get_file(document_id, current_user)
+    if data is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="File not found")
+    return Response(content=data, media_type=mime_type or "application/octet-stream")
 
 
 @router.post("/upload")

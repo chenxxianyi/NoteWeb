@@ -8,6 +8,20 @@ const username = computed(() => authStore.user?.username || '用户')
 const email = computed(() => authStore.user?.email || '—')
 const readingMode = ref(true)
 
+// AI settings — persisted in localStorage
+const aiProvider = ref(localStorage.getItem('ai_provider') || 'Mock API')
+const aiKey = ref(localStorage.getItem('ai_key') || '')
+const aiBaseUrl = ref(localStorage.getItem('ai_base_url') || '')
+const aiSaved = ref(false)
+
+function saveAISettings() {
+  localStorage.setItem('ai_provider', aiProvider.value)
+  localStorage.setItem('ai_key', aiKey.value)
+  localStorage.setItem('ai_base_url', aiBaseUrl.value)
+  aiSaved.value = true
+  setTimeout(() => { aiSaved.value = false }, 2000)
+}
+
 const storageUsed = computed(() => {
   const bytes = authStore.user?.storage_used || 0
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
@@ -169,14 +183,14 @@ const storagePercent = computed(() => {
                 <div class="setting-item__label">AI 提供商</div>
                 <div class="setting-item__desc">选择 AI 阅读助手的后端服务</div>
               </div>
-              <select class="input" style="width:160px;cursor:pointer;">
+              <select v-model="aiProvider" class="input" style="width:160px;cursor:pointer;">
                 <option>Mock API</option>
                 <option>OpenAI</option>
                 <option>DeepSeek</option>
                 <option>自定义</option>
               </select>
             </div>
-            <div class="setting-item" style="border-bottom:none;">
+            <div class="setting-item">
               <div class="setting-item__icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
               </div>
@@ -184,7 +198,24 @@ const storagePercent = computed(() => {
                 <div class="setting-item__label">API Key</div>
                 <div class="setting-item__desc">暂不填则使用 Mock 服务</div>
               </div>
-              <input class="input input--long" type="password" value="sk-xxxxxxxxxxxxxxxx" />
+              <input v-model="aiKey" class="input input--long" type="password" placeholder="sk-xxxxxxxxxxxxxxxx" />
+            </div>
+            <div v-if="aiProvider === '自定义'" class="setting-item">
+              <div class="setting-item__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </div>
+              <div class="setting-item__info">
+                <div class="setting-item__label">Base URL</div>
+                <div class="setting-item__desc">API 端点地址，支持中转站</div>
+              </div>
+              <input v-model="aiBaseUrl" class="input input--long" type="text" placeholder="https://your-proxy.com/v1" />
+            </div>
+            <div class="setting-item" style="border-bottom:none;">
+              <div></div>
+              <div class="setting-item__info">
+                <div v-if="aiSaved" class="setting-item__desc" style="color:#16A34A;">✅ 已保存</div>
+              </div>
+              <button class="btn btn--primary" @click="saveAISettings">保存配置</button>
             </div>
           </div>
         </div>

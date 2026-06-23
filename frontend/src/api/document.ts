@@ -26,3 +26,11 @@ export function deleteDocument(id: number) {
 export function renameDocument(id: number, title: string) {
   return request.patch(`/documents/${id}`, { title })
 }
+
+export function markDocumentAsRead(id: number) {
+  return request.patch(`/documents/${id}/read-progress`)
+}
+
+export function updateReadProgress(id: number, progress: number) {
+  return request.patch(`/documents/${id}/read-progress`, { progress })
+}

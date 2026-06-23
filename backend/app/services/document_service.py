@@ -135,6 +135,21 @@ class DocumentService:
             raise HTTPException(status_code=404, detail="Document not found")
         self.repo.soft_delete(doc_id)
 
+    def get_content(self, doc_id: int, user: User) -> dict:
+        """Return the parsed text content of a document."""
+        doc = self.repo.get_by_id(doc_id)
+        if not doc or doc.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return {"content": doc.parsed_content or ""}
+
+    def get_file(self, doc_id: int, user: User) -> tuple[bytes | None, str | None]:
+        """Return the original uploaded file bytes and its MIME type."""
+        doc = self.repo.get_by_id(doc_id)
+        if not doc or doc.user_id != user.id:
+            return None, None
+        data = self.storage.get_bytes(doc.storage_path)
+        return data, doc.mime_type
+
     def update_read_position(self, doc_id: int, position: str, user: User):
         doc = self.repo.get_by_id(doc_id)
         if not doc or doc.user_id != user.id:

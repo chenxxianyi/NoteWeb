@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import { useDocumentStore } from '../stores/documentStore'
@@ -9,6 +9,15 @@ const documentStore = useDocumentStore()
 const searchQuery = ref('')
 const activeFilter = ref('全部')
 const fileInput = ref<HTMLInputElement | null>(null)
+const activeMenuId = ref<number | null>(null)
+const menuRef = ref<HTMLElement | null>(null)
+
+// Rename modal state
+const renameModalVisible = ref(false)
+const renameTarget = ref<{ id: number; title: string } | null>(null)
+const renameInput = ref('')
+const renameInputRef = ref<HTMLInputElement | null>(null)
+const renameLoading = ref(false)
 
 const filters = ['全部', 'PDF', 'Markdown', 'DOCX', 'TXT']
 
@@ -83,8 +92,78 @@ function openReader(id: number) {
   router.push(`/reader/${id}`)
 }
 
+function toggleMenu(id: number) {
+  activeMenuId.value = activeMenuId.value === id ? null : id
+}
+
+async function handleRename(book: { id: number; title: string }) {
+  activeMenuId.value = null
+  renameTarget.value = book
+  renameInput.value = book.title
+  renameModalVisible.value = true
+  renameLoading.value = false
+  await nextTick()
+  renameInputRef.value?.focus()
+  renameInputRef.value?.select()
+}
+
+async function confirmRename() {
+  if (!renameTarget.value) return
+  const newTitle = renameInput.value.trim()
+  if (!newTitle || newTitle === renameTarget.value.title) {
+    closeRenameModal()
+    return
+  }
+  renameLoading.value = true
+  try {
+    await documentStore.rename(renameTarget.value.id, newTitle)
+    closeRenameModal()
+  } catch (e: any) {
+    console.warn('重命名失败:', e?.message || e)
+    renameLoading.value = false
+  }
+}
+
+function closeRenameModal() {
+  renameModalVisible.value = false
+  renameTarget.value = null
+  renameInput.value = ''
+  renameLoading.value = false
+}
+
+function onRenameKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') confirmRename()
+  else if (e.key === 'Escape') closeRenameModal()
+}
+
+async function handleDelete(book: { id: number; title: string }) {
+  activeMenuId.value = null
+  if (window.confirm(`确定要删除「${book.title}」吗？此操作不可撤销。`)) {
+    try {
+      await documentStore.remove(book.id)
+    } catch (e: any) {
+      console.warn('删除失败:', e?.message || e)
+    }
+  }
+}
+
+function handleClickOutside(e: MouseEvent) {
+  if (activeMenuId.value === null) return
+  // menuRef inside v-for is a VNode array; check each element
+  const menus = Array.isArray(menuRef.value) ? menuRef.value : (menuRef.value ? [menuRef.value] : [])
+  const inside = menus.some((el: Element) => el.contains(e.target as Node))
+  if (!inside) {
+    activeMenuId.value = null
+  }
+}
+
 onMounted(() => {
   documentStore.fetchDocuments()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>
 
@@ -168,15 +247,67 @@ onMounted(() => {
             </div>
             <div class="book-card__footer">
               <span>{{ formatSize(book.file_size) }} · {{ formatTime(book.updated_at) }}</span>
-              <button class="book-card__action" @click.stop>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="15" height="15"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-              </button>
+              <div class="menu-wrapper" ref="menuRef">
+                <button class="book-card__action" @click.stop="toggleMenu(book.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="15" height="15"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+                </button>
+                <div v-if="activeMenuId === book.id" class="dropdown-menu" @click.stop>
+                  <button class="dropdown-item" @click="handleRename(book)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                    重命名
+                  </button>
+                  <button class="dropdown-item dropdown-item--danger" @click="handleDelete(book)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    删除
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
   </AppLayout>
+
+  <!-- Rename Modal -->
+  <Teleport to="body">
+    <div
+      v-if="renameModalVisible"
+      class="rename-overlay"
+      @click="closeRenameModal"
+      @keydown="onRenameKeydown"
+      tabindex="-1"
+    >
+      <div class="rename-modal" @click.stop>
+        <div class="rename-modal__header">
+          <h3>重命名</h3>
+          <button class="rename-modal__close" @click="closeRenameModal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="rename-modal__body">
+          <input
+            ref="renameInputRef"
+            v-model="renameInput"
+            type="text"
+            class="rename-modal__input"
+            placeholder="请输入文件名"
+            @keydown="onRenameKeydown"
+          />
+        </div>
+        <div class="rename-modal__footer">
+          <button class="rename-modal__btn rename-modal__btn--cancel" @click="closeRenameModal">取消</button>
+          <button
+            class="rename-modal__btn rename-modal__btn--confirm"
+            :disabled="renameLoading || !renameInput.trim()"
+            @click="confirmRename"
+          >
+            {{ renameLoading ? '保存中...' : '确认' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -224,6 +355,37 @@ onMounted(() => {
 .book-card__action { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); transition: all 0.1s; }
 .book-card__action:hover { background: var(--accent-light); color: var(--accent); }
 
+.menu-wrapper { position: relative; }
+.dropdown-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  min-width: 130px;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+  z-index: 10;
+  overflow: hidden;
+}
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  background: transparent;
+  font-family: var(--font-ui, sans-serif);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.1s;
+  text-align: left;
+}
+.dropdown-item:hover { background: var(--accent-light); color: var(--text-primary); }
+.dropdown-item--danger:hover { background: #FEE2E2; color: #B91C1C; }
+
 @media (max-width: 820px) {
   .shelf { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
   .documents-page { padding: 1.2rem; }
@@ -233,5 +395,125 @@ onMounted(() => {
   .documents-page { padding: 1rem; }
   .topbar { flex-direction: column; align-items: stretch; }
   .topbar__right { flex-wrap: wrap; }
+}
+
+/* Rename Modal — matches project aesthetic */
+.rename-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.15s ease;
+}
+.rename-modal {
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #e5e2dc);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  width: 360px;
+  max-width: 90vw;
+  overflow: hidden;
+  animation: scaleIn 0.15s ease;
+}
+.rename-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0;
+}
+.rename-modal__header h3 {
+  font-family: var(--font-display, serif);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-primary, #2c2c2c);
+  margin: 0;
+}
+.rename-modal__close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted, #999);
+  transition: all 0.1s;
+}
+.rename-modal__close:hover {
+  background: var(--accent-light, #f0eee8);
+  color: var(--text-primary, #2c2c2c);
+}
+.rename-modal__body {
+  padding: 1rem 1.25rem;
+}
+.rename-modal__input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-color, #e5e2dc);
+  border-radius: var(--radius, 8px);
+  background: var(--bg-page, #faf8f5);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 0.85rem;
+  color: var(--text-primary, #2c2c2c);
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.rename-modal__input:focus {
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+.rename-modal__input::placeholder {
+  color: var(--text-muted, #999);
+}
+.rename-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0 1.25rem 1rem;
+}
+.rename-modal__btn {
+  padding: 0.4rem 1rem;
+  border-radius: var(--radius, 8px);
+  font-family: var(--font-ui, sans-serif);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.12s;
+  border: 1px solid var(--border-color, #e5e2dc);
+}
+.rename-modal__btn--cancel {
+  background: transparent;
+  color: var(--text-secondary, #666);
+}
+.rename-modal__btn--cancel:hover {
+  background: var(--accent-light, #f0eee8);
+  color: var(--text-primary, #2c2c2c);
+}
+.rename-modal__btn--confirm {
+  background: var(--accent, #2563eb);
+  color: #fff;
+  border-color: var(--accent, #2563eb);
+}
+.rename-modal__btn--confirm:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.rename-modal__btn--confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
 }
 </style>

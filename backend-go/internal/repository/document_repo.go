@@ -56,3 +56,8 @@ func (r *DocumentRepo) UpdateParsedContent(id uint, content string, pageCount, w
 			"word_count":     wordCount,
 		}).Error
 }
+
+func (r *DocumentRepo) UpdateReadProgress(id uint, progress float64) error {
+	return r.db.Model(&models.Document{}).Where("id = ?", id).
+		Update("read_progress", progress).Error
+}

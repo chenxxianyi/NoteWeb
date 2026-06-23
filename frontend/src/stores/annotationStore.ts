@@ -21,6 +21,7 @@ export const useAnnotationStore = defineStore('annotation', () => {
   async function create(data: Partial<Annotation>) {
     const res = await annotationApi.createAnnotation(data)
     annotations.value.push(res.data)
+    return res.data
   }
 
   async function remove(id: number) {
