@@ -1149,7 +1149,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="pdf-page-wrapper">
+  <div class="pdf-page-wrapper" :data-page="pageNum">
     <canvas ref="pdfCanvas" class="pdf-page-layer" />
     <canvas
       ref="drawCanvas"

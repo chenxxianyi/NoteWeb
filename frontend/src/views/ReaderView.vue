@@ -4,6 +4,37 @@ import { useRoute, useRouter } from 'vue-router'
 import { useDocumentStore } from '../stores/documentStore'
 import { useAnnotationStore } from '../stores/annotationStore'
 import { marked } from 'marked'
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Download,
+  Eraser,
+  FileText,
+  Highlighter,
+  List,
+  LoaderCircle,
+  Maximize,
+  MessageSquare,
+  Minus,
+  MoreHorizontal,
+  MousePointer2,
+  Palette,
+  PenLine,
+  Printer,
+  Redo2,
+  Search,
+  Settings,
+  Share2,
+  Square,
+  Type,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-vue-next'
 import PDFViewer from '../components/PDFViewer.vue'
 import AnnotationToolbar from '../components/AnnotationToolbar.vue'
 import type { PDFActiveTool, ShapeType, TextDrawing } from '../components/pdfDrawingTypes'
@@ -32,6 +63,11 @@ const pdfRef = ref<InstanceType<typeof PDFViewer> | null>(null)
 const pdfActiveTool = ref<PDFActiveTool>('none')
 const pdfShapeType = ref<ShapeType>('rectangle')
 const pdfShapeMenuOpen = ref(false)
+const pdfStylePanelOpen = ref(false)
+const pdfZoomMenuOpen = ref(false)
+const pdfMoreMenuOpen = ref(false)
+const pdfPageEditing = ref(false)
+const pdfPageInput = ref('1')
 const pdfPenColor = ref('#FF0000')
 const pdfPenWidth = ref(3)
 const pdfTextSize = ref(24)
@@ -41,43 +77,137 @@ const pdfEraseMode = ref<'freehand' | 'area'>('freehand')
 const pdfZoom = ref(100)
 const pdfCurPage = ref(1)
 const pdfPageCount = ref(1)
+const pdfCanUndo = ref(false)
+const pdfCanRedo = ref(false)
+const pdfSaving = ref(false)
 
 const pdfUsesStyle = computed(() =>
   pdfActiveTool.value === 'pen' ||
   pdfActiveTool.value === 'highlighter' ||
   pdfActiveTool.value === 'shape' ||
   pdfActiveTool.value === 'text' ||
+  pdfActiveTool.value === 'eraser' ||
   pdfSelectedText.value !== null)
 
 const pdfShowsTextControls = computed(() =>
   pdfActiveTool.value === 'text' || pdfSelectedText.value !== null)
 
+const pdfActiveToolLabel = computed(() => {
+  const labels: Record<PDFActiveTool, string> = {
+    none: '浏览',
+    pen: '画笔',
+    highlighter: '高亮',
+    eraser: '橡皮',
+    select: '选择',
+    shape: '形状',
+    text: '文本',
+  }
+  return labels[pdfActiveTool.value]
+})
+
+const pdfSaveStatusLabel = computed(() => {
+  if (pdfSaving.value) return '保存中'
+  return '已保存'
+})
+
 function pdfSwitchTool(tool: PDFActiveTool) {
   pdfActiveTool.value = pdfActiveTool.value === tool ? 'none' : tool
   if (tool !== 'shape') pdfShapeMenuOpen.value = false
   if (tool !== 'select') pdfSelectedText.value = null
+  pdfZoomMenuOpen.value = false
+  pdfMoreMenuOpen.value = false
+  pdfStylePanelOpen.value = pdfUsesStyle.value
 }
 function pdfToggleShapeMenu() {
   pdfShapeMenuOpen.value = !pdfShapeMenuOpen.value
+  pdfStylePanelOpen.value = false
+  pdfZoomMenuOpen.value = false
+  pdfMoreMenuOpen.value = false
 }
 function pdfChooseShape(shapeType: ShapeType) {
   pdfShapeType.value = shapeType
   pdfActiveTool.value = 'shape'
   pdfShapeMenuOpen.value = false
+  pdfStylePanelOpen.value = true
 }
 function pdfToggleEraseMode() {
   pdfEraseMode.value = pdfEraseMode.value === 'freehand' ? 'area' : 'freehand'
 }
+function pdfToggleStylePanel() {
+  if (!pdfUsesStyle.value) return
+  pdfStylePanelOpen.value = !pdfStylePanelOpen.value
+  pdfShapeMenuOpen.value = false
+  pdfZoomMenuOpen.value = false
+  pdfMoreMenuOpen.value = false
+}
+function pdfToggleZoomMenu() {
+  pdfZoomMenuOpen.value = !pdfZoomMenuOpen.value
+  pdfStylePanelOpen.value = false
+  pdfShapeMenuOpen.value = false
+  pdfMoreMenuOpen.value = false
+}
+function pdfToggleMoreMenu() {
+  pdfMoreMenuOpen.value = !pdfMoreMenuOpen.value
+  pdfStylePanelOpen.value = false
+  pdfShapeMenuOpen.value = false
+  pdfZoomMenuOpen.value = false
+}
 function pdfZoomIn() { pdfRef.value?.zoomIn() }
 function pdfZoomOut() { pdfRef.value?.zoomOut() }
+function pdfSetZoom(value: number) {
+  pdfZoomMenuOpen.value = false
+  void pdfRef.value?.setZoom?.(value)
+}
+function pdfFitWidth() {
+  pdfZoomMenuOpen.value = false
+  void pdfRef.value?.fitWidth?.()
+}
+function pdfFitPage() {
+  pdfZoomMenuOpen.value = false
+  void pdfRef.value?.fitPage?.()
+}
 function pdfUndo() { pdfRef.value?.undoLastStroke(pdfCurPage.value) }
-function onPDFPageChange(page: number) { pdfCurPage.value = page }
+function pdfRedo() { pdfRef.value?.redoLastStroke?.() }
+function pdfBeginPageEdit() {
+  pdfPageEditing.value = true
+  pdfPageInput.value = String(pdfCurPage.value)
+}
+function pdfCommitPageEdit() {
+  const target = Number(pdfPageInput.value)
+  if (!Number.isFinite(target)) {
+    pdfPageInput.value = String(pdfCurPage.value)
+    pdfPageEditing.value = false
+    return
+  }
+  pdfRef.value?.jumpToPage?.(target)
+  pdfPageEditing.value = false
+}
+function pdfGoPage(delta: number) {
+  pdfRef.value?.jumpToPage?.(pdfCurPage.value + delta)
+}
+function pdfCancelPageEdit() {
+  pdfPageInput.value = String(pdfCurPage.value)
+  pdfPageEditing.value = false
+}
+function onPDFZoomChange(value: number) { pdfZoom.value = value }
+function onPDFPageChange(page: number) {
+  pdfCurPage.value = page
+  if (!pdfPageEditing.value) pdfPageInput.value = String(page)
+}
 function onPDFPageCountChange(count: number) { pdfPageCount.value = count }
+function onPDFHistoryStateChange(state: { canUndo: boolean; canRedo: boolean }) {
+  pdfCanUndo.value = state.canUndo
+  pdfCanRedo.value = state.canRedo
+}
+function onPDFSavingStateChange(saving: boolean) {
+  pdfSaving.value = saving
+}
 function onPDFTextSelectionChange(drawing: TextDrawing | null) {
   pdfSelectedText.value = drawing
   if (!drawing) return
   pdfPenColor.value = drawing.color
   pdfTextSize.value = drawing.fontSize
+  pdfStylePanelOpen.value = true
 }
 function pdfApplySelectedTextStyle() {
   if (!pdfSelectedText.value) return
@@ -85,6 +215,47 @@ function pdfApplySelectedTextStyle() {
     color: pdfPenColor.value,
     fontSize: pdfTextSize.value,
   })
+}
+
+function onReaderKeydown(event: KeyboardEvent) {
+  if (doc.value?.file_type !== 'pdf') return
+  const target = event.target as HTMLElement | null
+  if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return
+  if (event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'z') {
+    event.preventDefault()
+    pdfUndo()
+    return
+  }
+  if (
+    (event.ctrlKey && event.key.toLowerCase() === 'y') ||
+    (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'z')
+  ) {
+    event.preventDefault()
+    pdfRedo()
+    return
+  }
+  if (event.ctrlKey && ['=', '+'].includes(event.key)) {
+    event.preventDefault()
+    pdfZoomIn()
+    return
+  }
+  if (event.ctrlKey && event.key === '-') {
+    event.preventDefault()
+    pdfZoomOut()
+    return
+  }
+  if (event.ctrlKey && event.key === '0') {
+    event.preventDefault()
+    pdfSetZoom(100)
+    return
+  }
+  if (event.key === 'Escape') {
+    pdfStylePanelOpen.value = false
+    pdfShapeMenuOpen.value = false
+    pdfZoomMenuOpen.value = false
+    pdfMoreMenuOpen.value = false
+    pdfCancelPageEdit()
+  }
 }
 
 // Progress tracking
@@ -254,6 +425,7 @@ function handleScroll() {
 
 onMounted(async () => {
   window.addEventListener('scroll', handleScroll)
+  window.addEventListener('keydown', onReaderKeydown)
   capturedDocId = docId.value // lock in the id before any redirect may happen
   try {
     await Promise.all([
@@ -281,6 +453,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
+  window.removeEventListener('keydown', onReaderKeydown)
   // Final progress save
   if (progressTimer) {
     clearInterval(progressTimer)
@@ -307,76 +480,162 @@ onUnmounted(() => {
 
     <!-- Floating Top Bar -->
     <div :class="['reader-topbar', { hidden: topbarHidden, 'eraser-active': pdfActiveTool === 'eraser' }]">
-      <button class="tb-btn" title="返回" @click="router.push('/documents')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      <button class="tb-btn" title="返回" aria-label="返回" @click="router.push('/documents')">
+        <ArrowLeft />
       </button>
       <div class="tb-divider"></div>
-      <button class="tb-btn" title="目录" @click="toggleLeft">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      <button class="tb-btn" title="目录" aria-label="目录" @click="toggleLeft">
+        <List />
       </button>
-      <button class="tb-btn" title="批注和AI" @click="toggleRight">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <button class="tb-btn" title="批注和AI" aria-label="批注和AI" @click="toggleRight">
+        <MessageSquare />
       </button>
 
       <!-- PDF drawing tools -->
       <template v-if="doc?.file_type === 'pdf'">
-        <input v-if="pdfActiveTool === 'eraser'" type="range" v-model.number="pdfEraserSize" class="tb-size-slider tb-size-slider--eraser" min="8" max="48" title="橡皮大小" />
-        <span v-if="pdfActiveTool === 'eraser'" class="tb-label">橡皮 {{ pdfEraserSize }}px</span>
         <div class="tb-divider"></div>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'pen' }]" title="画笔" @click="pdfSwitchTool('pen')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        <button :class="['tb-btn', { active: pdfActiveTool === 'pen' }]" title="画笔" aria-label="画笔" @click="pdfSwitchTool('pen')">
+          <PenLine />
         </button>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'highlighter' }]" title="荧光笔" @click="pdfSwitchTool('highlighter')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 11l-6 6v3h9l3-23"/><path d="M9 3h-2l-7 14h2l7-14z"/></svg>
+        <button :class="['tb-btn', { active: pdfActiveTool === 'highlighter' }]" title="高亮" aria-label="高亮" @click="pdfSwitchTool('highlighter')">
+          <Highlighter />
         </button>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'text' }]" title="添加文本" @click="pdfSwitchTool('text')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M4 6V4h16v2"/><path d="M12 4v16"/><path d="M8 20h8"/></svg>
+        <button :class="['tb-btn', { active: pdfActiveTool === 'text' }]" title="添加文本" aria-label="添加文本" @click="pdfSwitchTool('text')">
+          <Type />
         </button>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'select' }]" title="选择形状" @click="pdfSwitchTool('select')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M5 3l14 8-6 2-3 6z"/></svg>
+        <button :class="['tb-btn', { active: pdfActiveTool === 'select' }]" title="选择批注" aria-label="选择批注" @click="pdfSwitchTool('select')">
+          <MousePointer2 />
         </button>
         <div class="shape-tool-wrap">
-          <button :class="['tb-btn', { active: pdfActiveTool === 'shape' }]" title="形状" @click="pdfToggleShapeMenu">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="5" width="11" height="11" rx="1"/><circle cx="16.5" cy="14.5" r="4.5"/></svg>
+          <button :class="['tb-btn', { active: pdfActiveTool === 'shape' }]" title="形状" aria-label="形状" @click="pdfToggleShapeMenu">
+            <Square />
           </button>
           <div v-if="pdfShapeMenuOpen" class="shape-menu">
             <button :class="{ active: pdfShapeType === 'line' }" @click="pdfChooseShape('line')">
-              <svg viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="4"/></svg><span>直线</span>
+              <Minus /><span>直线</span>
             </button>
             <button :class="{ active: pdfShapeType === 'arrow' }" @click="pdfChooseShape('arrow')">
-              <svg viewBox="0 0 24 24"><line x1="4" y1="20" x2="19" y2="5"/><polyline points="11,5 19,5 19,13"/></svg><span>箭头</span>
+              <ArrowRight /><span>箭头</span>
             </button>
             <button :class="{ active: pdfShapeType === 'rectangle' }" @click="pdfChooseShape('rectangle')">
-              <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/></svg><span>矩形</span>
+              <Square /><span>矩形</span>
             </button>
             <button :class="{ active: pdfShapeType === 'ellipse' }" @click="pdfChooseShape('ellipse')">
-              <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="6"/></svg><span>椭圆</span>
+              <Circle /><span>椭圆</span>
             </button>
           </div>
         </div>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'eraser' }]" title="橡皮擦" @click="pdfSwitchTool('eraser')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.5 1.7c.8-.8 2-.8 2.8 0L20 4.3c.8.8.8 2 0 2.8L8.5 18.7"/></svg>
+        <button :class="['tb-btn', { active: pdfActiveTool === 'eraser' }]" title="橡皮擦" aria-label="橡皮擦" @click="pdfSwitchTool('eraser')">
+          <Eraser />
         </button>
-        <button v-if="pdfActiveTool === 'eraser'" class="tb-btn" :title="pdfEraseMode === 'freehand' ? '局部擦除（点击切换框选擦除）' : '框选局部擦除（点击切换自由擦除）'" @click="pdfToggleEraseMode">
-          <svg v-if="pdfEraseMode === 'freehand'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        <button
+          v-if="pdfUsesStyle"
+          :class="['tb-btn', { active: pdfStylePanelOpen }]"
+          title="样式设置"
+          aria-label="样式设置"
+          @click="pdfToggleStylePanel"
+        >
+          <Palette />
         </button>
-        <button class="tb-btn" title="撤销" @click="pdfUndo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-        </button>
-        <input v-if="pdfUsesStyle" type="color" v-model="pdfPenColor" class="tb-color-picker" title="颜色" @change="pdfApplySelectedTextStyle" />
-        <input v-if="pdfShowsTextControls" type="range" v-model.number="pdfTextSize" class="tb-size-slider tb-size-slider--text" min="10" max="72" title="字号" @change="pdfApplySelectedTextStyle" />
-        <span v-if="pdfShowsTextControls" class="tb-label">字号 {{ pdfTextSize }}px</span>
-        <input v-else-if="pdfUsesStyle" type="range" v-model.number="pdfPenWidth" class="tb-size-slider" min="1" max="20" title="粗细" />
+        <div class="tb-popover-wrap">
+          <div v-if="pdfStylePanelOpen" class="tb-popover tb-style-panel">
+            <div class="tb-popover__header">
+              <strong>{{ pdfActiveToolLabel }}样式</strong>
+              <span>{{ pdfPenColor }}</span>
+            </div>
+            <label class="tool-field">
+              <span>颜色</span>
+              <input type="color" v-model="pdfPenColor" @change="pdfApplySelectedTextStyle" />
+            </label>
+            <label v-if="pdfShowsTextControls" class="tool-field">
+              <span>字号 {{ pdfTextSize }}px</span>
+              <input type="range" v-model.number="pdfTextSize" min="10" max="72" @change="pdfApplySelectedTextStyle" />
+            </label>
+            <label v-else-if="pdfActiveTool !== 'eraser'" class="tool-field">
+              <span>线宽 {{ pdfPenWidth }}px</span>
+              <input type="range" v-model.number="pdfPenWidth" min="1" max="20" />
+            </label>
+            <label v-if="pdfActiveTool === 'eraser'" class="tool-field">
+              <span>橡皮 {{ pdfEraserSize }}px</span>
+              <input type="range" v-model.number="pdfEraserSize" min="8" max="48" />
+            </label>
+            <button v-if="pdfActiveTool === 'eraser'" class="panel-action" @click="pdfToggleEraseMode">
+              {{ pdfEraseMode === 'freehand' ? '切换为框选擦除' : '切换为自由擦除' }}
+            </button>
+          </div>
+        </div>
         <div class="tb-divider"></div>
-        <span class="tb-label">{{ pdfCurPage }}/{{ pdfPageCount }}</span>
-        <button class="tb-btn" title="缩小" @click="pdfZoomOut">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        <button class="tb-btn" title="撤销" aria-label="撤销" :disabled="!pdfCanUndo" @click="pdfUndo">
+          <Undo2 />
         </button>
-        <span class="tb-label">{{ pdfZoom }}%</span>
-        <button class="tb-btn" title="放大" @click="pdfZoomIn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        <button class="tb-btn" title="重做" aria-label="重做" :disabled="!pdfCanRedo" @click="pdfRedo">
+          <Redo2 />
         </button>
+        <div class="tb-divider"></div>
+        <button class="tb-btn tb-btn--compact" title="上一页" aria-label="上一页" :disabled="pdfCurPage <= 1" @click="pdfGoPage(-1)">
+          <ChevronLeft />
+        </button>
+        <form v-if="pdfPageEditing" class="page-jump" @submit.prevent="pdfCommitPageEdit">
+          <input
+            v-model="pdfPageInput"
+            type="number"
+            min="1"
+            :max="pdfPageCount"
+            aria-label="跳转页码"
+            @blur="pdfCommitPageEdit"
+            @keydown.esc.prevent="pdfCancelPageEdit"
+          />
+          <span>/{{ pdfPageCount }}</span>
+        </form>
+        <button v-else class="tb-page-label" title="跳转页码" aria-label="跳转页码" @click="pdfBeginPageEdit">
+          {{ pdfCurPage }}/{{ pdfPageCount }}
+        </button>
+        <button class="tb-btn tb-btn--compact" title="下一页" aria-label="下一页" :disabled="pdfCurPage >= pdfPageCount" @click="pdfGoPage(1)">
+          <ChevronRight />
+        </button>
+        <div class="tb-divider"></div>
+        <button class="tb-btn" title="缩小" aria-label="缩小" @click="pdfZoomOut">
+          <ZoomOut />
+        </button>
+        <div class="tb-popover-wrap">
+          <button class="tb-zoom-label" title="缩放菜单" aria-label="缩放菜单" @click="pdfToggleZoomMenu">
+            {{ pdfZoom }}%
+          </button>
+          <div v-if="pdfZoomMenuOpen" class="tb-popover tb-zoom-menu">
+            <button @click="pdfFitWidth"><Maximize />适配宽度</button>
+            <button @click="pdfFitPage"><FileText />适配页面</button>
+            <button
+              v-for="value in [50, 75, 100, 125, 150, 200]"
+              :key="value"
+              :class="{ active: pdfZoom === value }"
+              @click="pdfSetZoom(value)"
+            >
+              {{ value }}%
+            </button>
+          </div>
+        </div>
+        <button class="tb-btn" title="放大" aria-label="放大" @click="pdfZoomIn">
+          <ZoomIn />
+        </button>
+        <div class="tb-divider"></div>
+        <button class="tb-status" :title="pdfSaveStatusLabel" aria-label="保存状态">
+          <LoaderCircle v-if="pdfSaving" class="spin" />
+          <CheckCircle2 v-else />
+          <span>{{ pdfSaveStatusLabel }}</span>
+        </button>
+        <div class="tb-popover-wrap">
+          <button class="tb-btn" title="更多" aria-label="更多" @click="pdfToggleMoreMenu">
+            <MoreHorizontal />
+          </button>
+          <div v-if="pdfMoreMenuOpen" class="tb-popover tb-more-menu">
+            <button @click="toggleRight"><MessageSquare />批注列表</button>
+            <button disabled><Search />搜索文档</button>
+            <button disabled><Download />导出带批注 PDF</button>
+            <button disabled><Share2 />分享</button>
+            <button disabled><Printer />打印</button>
+            <button disabled><Settings />阅读设置</button>
+          </div>
+        </div>
       </template>
 
       <!-- Text reader tools -->
@@ -482,8 +741,11 @@ onUnmounted(() => {
         :pen-width="pdfActiveTool === 'eraser' ? pdfEraserSize : pdfPenWidth"
         :text-size="pdfTextSize"
         @progress="onPDFProgress"
+        @zoom-change="onPDFZoomChange"
         @current-page-change="onPDFPageChange"
         @page-count-change="onPDFPageCountChange"
+        @history-state-change="onPDFHistoryStateChange"
+        @saving-state-change="onPDFSavingStateChange"
         @text-selection-change="onPDFTextSelectionChange"
       />
     </div>
@@ -511,23 +773,59 @@ onUnmounted(() => {
 .panel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.15); z-index: 15; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
 .panel-overlay.show { opacity: 1; pointer-events: auto; }
 
-.reader-topbar { position: fixed; top: 0.75rem; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.6rem; background: rgba(250,248,245,0.92); backdrop-filter: blur(8px); border: 1px solid var(--border-color); border-radius: 24px; box-shadow: 0 2px 12px rgba(61,46,36,0.08); transition: opacity 0.3s, transform 0.3s; font-family: var(--font-ui); }
+.reader-topbar { position: fixed; top: 0.75rem; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 0.28rem; max-width: calc(100vw - 1.5rem); padding: 0.35rem 0.6rem; background: rgba(250,248,245,0.94); backdrop-filter: blur(10px); border: 1px solid var(--border-color); border-radius: 24px; box-shadow: 0 2px 12px rgba(61,46,36,0.08); transition: opacity 0.3s, transform 0.3s; font-family: var(--font-ui); }
 .reader-topbar.hidden { opacity: 0; transform: translateX(-50%) translateY(-10px); pointer-events: none; }
-.tb-btn { width: 34px; height: 34px; border: none; border-radius: 50%; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); transition: all 0.12s; }
+.tb-btn { width: 34px; height: 34px; min-width: 34px; border: none; border-radius: 50%; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); transition: background 0.16s, color 0.16s, opacity 0.16s; touch-action: manipulation; }
 .tb-btn:hover { background: var(--accent-light); color: var(--accent); }
 .tb-btn.active { background: var(--accent); color: #fff; }
 .tb-btn.active:hover { background: var(--accent); opacity: 0.85; }
+.tb-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+.tb-btn:disabled:hover { background: transparent; color: var(--text-secondary); }
+.tb-btn:focus-visible,
+.tb-page-label:focus-visible,
+.tb-zoom-label:focus-visible,
+.tb-status:focus-visible,
+.shape-menu button:focus-visible,
+.tb-popover button:focus-visible,
+.page-jump input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tb-btn svg { width: 18px; height: 18px; }
+.tb-btn--compact { width: 28px; min-width: 28px; }
+.tb-btn--compact svg { width: 16px; height: 16px; }
 .tb-divider { width: 1px; height: 20px; background: var(--border-color); margin: 0 0.2rem; }
 .tb-label { font-size: 0.7rem; color: var(--text-muted); padding: 0 0.4rem; }
-.tb-color-picker { width: 24px; height: 24px; border: 1px solid var(--border-color); border-radius: 4px; padding: 0; cursor: pointer; background: transparent; }
-.tb-size-slider { width: 60px; height: 20px; cursor: pointer; accent-color: var(--accent); }
-.tb-size-slider--eraser { width: 88px; }
-.tb-size-slider--text { width: 96px; }
-.reader-topbar.eraser-active .tb-color-picker,
-.reader-topbar.eraser-active .tb-size-slider:not(.tb-size-slider--eraser) {
-  display: none;
-}
+.tb-page-label,
+.tb-zoom-label,
+.tb-status { height: 34px; border: none; border-radius: 17px; background: transparent; color: var(--text-secondary); font-family: var(--font-ui); font-size: 0.76rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; cursor: pointer; transition: background 0.16s, color 0.16s; white-space: nowrap; touch-action: manipulation; }
+.tb-page-label { min-width: 58px; padding: 0 0.42rem; }
+.tb-zoom-label { min-width: 54px; padding: 0 0.46rem; color: var(--text-muted); }
+.tb-status { min-width: 78px; padding: 0 0.55rem; color: var(--text-muted); cursor: default; }
+.tb-status svg { width: 15px; height: 15px; }
+.tb-page-label:hover,
+.tb-zoom-label:hover { background: var(--accent-light); color: var(--accent); }
+.page-jump { height: 34px; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0 0.45rem; border-radius: 17px; background: rgba(255,255,255,0.72); border: 1px solid var(--border-color); color: var(--text-muted); font-family: var(--font-ui); font-size: 0.75rem; }
+.page-jump input { width: 42px; border: none; background: transparent; color: var(--text-primary); font: inherit; text-align: center; outline: none; }
+.tb-popover-wrap { position: relative; display: inline-flex; align-items: center; }
+.tb-popover { position: absolute; top: calc(100% + 0.65rem); left: 50%; transform: translateX(-50%); z-index: 35; padding: 0.55rem; background: rgba(250,248,245,0.98); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 8px 24px rgba(61,46,36,0.16); font-family: var(--font-ui); }
+.tb-popover__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.55rem; color: var(--text-primary); font-size: 0.76rem; }
+.tb-popover__header span { color: var(--text-muted); font-size: 0.68rem; }
+.tb-style-panel { width: 210px; }
+.tool-field { display: grid; gap: 0.35rem; margin-bottom: 0.55rem; color: var(--text-muted); font-size: 0.72rem; }
+.tool-field input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+.tool-field input[type="color"] { width: 100%; height: 32px; padding: 0; border: 1px solid var(--border-color); border-radius: 6px; background: transparent; cursor: pointer; }
+.panel-action,
+.tb-popover button { min-height: 32px; border: none; border-radius: 7px; background: transparent; color: var(--text-secondary); font-family: var(--font-ui); font-size: 0.75rem; cursor: pointer; }
+.panel-action { width: 100%; background: var(--accent-light); color: var(--accent); }
+.tb-popover button:hover,
+.tb-popover button.active { background: var(--accent-light); color: var(--accent); }
+.tb-popover button:disabled { opacity: 0.45; cursor: not-allowed; }
+.tb-zoom-menu,
+.tb-more-menu { display: grid; gap: 0.25rem; min-width: 150px; }
+.tb-zoom-menu button,
+.tb-more-menu button { display: flex; align-items: center; gap: 0.45rem; padding: 0 0.55rem; text-align: left; }
+.tb-zoom-menu svg,
+.tb-more-menu svg { width: 15px; height: 15px; flex-shrink: 0; }
+.spin { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .shape-tool-wrap { position: relative; display: flex; }
 .shape-menu {
   position: absolute;
@@ -631,6 +929,52 @@ onUnmounted(() => {
 .doc-body th { background: var(--accent-light); font-weight: 500; }
 .doc-body hr { border: none; border-top: 1px solid var(--border-color); margin: 1.5rem 0; }
 
-@media (max-width: 1024px) { .reader-content { max-width: 100%; padding: 4.5rem 2rem 5rem; } .reader-inner { max-width: 100%; } }
-@media (max-width: 600px) { .page-edge { display: none; } .reader-content { padding: 3.5rem 1rem 4rem; } .panel-left, .panel-right { width: 100%; } }
+@media (max-width: 1180px) {
+  .reader-topbar { gap: 0.18rem; padding-inline: 0.45rem; }
+  .tb-status span { display: none; }
+  .tb-status { min-width: 34px; padding: 0; }
+}
+
+@media (max-width: 1024px) {
+  .reader-content { max-width: 100%; padding: 4.5rem 2rem 5rem; }
+  .reader-inner { max-width: 100%; }
+  .reader-topbar { top: 0.5rem; max-width: calc(100vw - 1rem); overflow: visible; }
+  .tb-divider:nth-of-type(2),
+  .tb-btn[aria-label="高亮"],
+  .tb-btn[aria-label="添加文本"],
+  .tb-btn[aria-label="形状"],
+  .tb-status { display: none; }
+}
+
+@media (max-width: 760px) {
+  .reader-topbar { left: 0.5rem; right: 0.5rem; transform: none; justify-content: space-between; border-radius: 22px; }
+  .reader-topbar.hidden { transform: translateY(-10px); }
+  .tb-btn { width: 38px; height: 38px; min-width: 38px; }
+  .tb-btn svg { width: 19px; height: 19px; }
+  .tb-btn[aria-label="目录"],
+  .tb-btn[aria-label="选择批注"],
+  .tb-btn[aria-label="橡皮擦"],
+  .tb-btn[aria-label="重做"],
+  .tb-btn[aria-label="缩小"],
+  .tb-btn[aria-label="放大"],
+  .tb-zoom-label { display: none; }
+  .tb-page-label { min-width: 64px; }
+  .tb-popover { position: fixed; top: 3.8rem; left: 0.75rem; right: 0.75rem; transform: none; width: auto; }
+  .shape-menu { position: fixed; top: 3.8rem; left: 0.75rem; right: 0.75rem; transform: none; grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: 0; }
+  .shape-menu button { justify-content: center; }
+  .shape-menu button span { display: none; }
+}
+
+@media (max-width: 600px) {
+  .page-edge { display: none; }
+  .reader-content { padding: 3.5rem 1rem 4rem; }
+  .panel-left, .panel-right { width: 100%; }
+}
+
+@media (max-width: 440px) {
+  .tb-btn[aria-label="批注和AI"],
+  .tb-btn[aria-label="上一页"],
+  .tb-btn[aria-label="下一页"] { display: none; }
+  .tb-page-label { min-width: 58px; padding-inline: 0.3rem; }
+}
 </style>

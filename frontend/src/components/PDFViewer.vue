@@ -36,6 +36,9 @@ const emit = defineEmits<{
   progress: [value: number]
   currentPageChange: [page: number]
   pageCountChange: [count: number]
+  zoomChange: [zoom: number]
+  historyStateChange: [state: { canUndo: boolean; canRedo: boolean }]
+  savingStateChange: [saving: boolean]
   textSelectionChange: [drawing: TextDrawing | null]
 }>()
 
@@ -65,11 +68,55 @@ const error = ref<string | null>(null)
 const pageCount = ref(0)
 const currentPage = ref(1)
 const zoom = ref(100)
+const canUndo = ref(false)
+const canRedo = ref(false)
+const pendingSaveCount = ref(0)
 
 const drawingsByPage = ref<Map<number, Drawing[]>>(new Map())
 const history: HistoryEntry[] = []
+const redoStack: HistoryEntry[] = []
 let pdfDoc: pdfjs.PDFDocumentProxy | null = null
 const pendingDrawingSaves = new WeakMap<Drawing, Promise<Drawing>>()
+
+function updateHistoryState() {
+  canUndo.value = history.some((entry) => entry.pageNum === currentPage.value)
+  canRedo.value = redoStack.length > 0
+  emit('historyStateChange', { canUndo: canUndo.value, canRedo: canRedo.value })
+}
+
+function recordHistory(entry: HistoryEntry) {
+  history.push(entry)
+  redoStack.length = 0
+  updateHistoryState()
+}
+
+function moveHistoryEntryToRedo(entryIndex: number) {
+  const [entry] = history.splice(entryIndex, 1)
+  if (entry) redoStack.push(entry)
+  updateHistoryState()
+  return entry
+}
+
+function moveRedoEntryToHistory(entry: HistoryEntry) {
+  history.push(entry)
+  updateHistoryState()
+}
+
+function stripDrawingId(drawing: Drawing): Drawing {
+  const next = { ...drawing }
+  delete next.id
+  return next
+}
+
+function beginSave() {
+  pendingSaveCount.value += 1
+  emit('savingStateChange', true)
+}
+
+function endSave() {
+  pendingSaveCount.value = Math.max(0, pendingSaveCount.value - 1)
+  emit('savingStateChange', pendingSaveCount.value > 0)
+}
 
 function drawingCreateData(pageNum: number, drawing: Drawing): AnnotationReplacementCreate {
   const positionData = isShapeDrawing(drawing)
@@ -178,6 +225,7 @@ async function addDrawing(pageNum: number, drawing: Drawing) {
   const drawings = drawingsByPage.value.get(pageNum) || []
   const optimistic = { ...drawing }
   setPageDrawings(pageNum, [...drawings, optimistic])
+  beginSave()
   const savePromise = saveDrawing(pageNum, drawing)
   pendingDrawingSaves.set(optimistic, savePromise)
 
@@ -193,7 +241,7 @@ async function addDrawing(pageNum: number, drawing: Drawing) {
     })
     if (stillPresent) {
       setPageDrawings(pageNum, next)
-      history.push({ type: 'draw', pageNum, stroke: saved })
+      recordHistory({ type: 'draw', pageNum, stroke: saved })
     }
   } catch (e: any) {
     pendingDrawingSaves.delete(optimistic)
@@ -202,6 +250,8 @@ async function addDrawing(pageNum: number, drawing: Drawing) {
       pageNum,
       (drawingsByPage.value.get(pageNum) || []).filter((item) => item !== optimistic),
     )
+  } finally {
+    endSave()
   }
 }
 
@@ -301,6 +351,7 @@ async function replaceDrawings(pageNum: number, replacements: DrawingReplacement
     return
   }
 
+  beginSave()
   try {
     const resolvedOperations = await Promise.all(operations.map(async (operation) => ({
       ...operation,
@@ -355,7 +406,7 @@ async function replaceDrawings(pageNum: number, replacements: DrawingReplacement
       fragmentsByIndex.get(index) || [drawing])
 
     setPageDrawings(pageNum, nextDrawings)
-    history.push({
+    recordHistory({
       type: 'erase',
       pageNum,
       replacements: normalizedOperations.map((operation, index) => ({
@@ -367,6 +418,8 @@ async function replaceDrawings(pageNum: number, replacements: DrawingReplacement
   } catch (e: any) {
     console.warn('局部擦除保存失败:', e?.message || e)
     cancelReplacementPreview(pageNum)
+  } finally {
+    endSave()
   }
 }
 
@@ -378,19 +431,35 @@ async function editDrawing(pageNum: number, index: number, drawing: Drawing) {
     return
   }
 
-  try {
+  const optimistic = { ...drawing }
+  const optimisticDrawings = [...drawings]
+  optimisticDrawings[index] = optimistic
+  setPageDrawings(pageNum, optimisticDrawings)
+
+  beginSave()
+  const replacePromise = (async () => {
     const persistedOriginal = await resolvePersistedDrawing(original)
-    const replacement = (await replacePersistedDrawings(pageNum, [persistedOriginal], [drawing]))[0]
+    return {
+      persistedOriginal,
+      replacement: (await replacePersistedDrawings(pageNum, [persistedOriginal], [drawing]))[0],
+    }
+  })()
+  const replacementSavePromise = replacePromise.then(({ replacement }) => replacement)
+  void replacementSavePromise.catch(() => {})
+  pendingDrawingSaves.set(optimistic, replacementSavePromise)
+
+  try {
+    const { persistedOriginal, replacement } = await replacePromise
     const current = drawingsByPage.value.get(pageNum) || []
-    const currentIndex = findCurrentDrawingIndex(current, index, original)
+    const currentIndex = findCurrentDrawingIndex(current, index, optimistic)
     if (currentIndex < 0) {
       cancelReplacementPreview(pageNum)
       return
     }
-    const next = [...current]
-    next[currentIndex] = replacement
-    setPageDrawings(pageNum, next)
-    history.push({
+    const committedDrawings = [...current]
+    committedDrawings[currentIndex] = replacement
+    setPageDrawings(pageNum, committedDrawings)
+    recordHistory({
       type: 'edit',
       pageNum,
       index: currentIndex,
@@ -399,11 +468,22 @@ async function editDrawing(pageNum: number, index: number, drawing: Drawing) {
     })
   } catch (e: any) {
     console.warn('保存形状编辑失败:', e?.message || e)
+    const current = drawingsByPage.value.get(pageNum) || []
+    const currentIndex = findCurrentDrawingIndex(current, index, optimistic)
+    if (currentIndex >= 0) {
+      const rolledBackDrawings = [...current]
+      rolledBackDrawings[currentIndex] = original
+      setPageDrawings(pageNum, rolledBackDrawings)
+    }
     cancelReplacementPreview(pageNum)
+  } finally {
+    pendingDrawingSaves.delete(optimistic)
+    endSave()
   }
 }
 
 async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type: 'erase' }>) {
+  beginSave()
   try {
     const restoredOriginals = await replacePersistedDrawings(
       entry.pageNum,
@@ -438,15 +518,24 @@ async function undoErase(entryIndex: number, entry: Extract<HistoryEntry, { type
     while (remainingIndex < remaining.length) result.push(remaining[remainingIndex++])
 
     setPageDrawings(entry.pageNum, result)
-    history.splice(entryIndex, 1)
+    const undone = moveHistoryEntryToRedo(entryIndex)
+    if (undone?.type === 'erase') {
+      undone.replacements = undone.replacements.map((replacement, index) => ({
+        ...replacement,
+        original: restoredOriginals[index],
+      }))
+    }
     redrawPage(entry.pageNum)
   } catch (e: any) {
     console.warn('恢复擦除批注失败:', e?.message || e)
     redrawPage(entry.pageNum)
+  } finally {
+    endSave()
   }
 }
 
 async function undoEdit(entryIndex: number, entry: Extract<HistoryEntry, { type: 'edit' }>) {
+  beginSave()
   try {
     const restored = (await replacePersistedDrawings(
       entry.pageNum,
@@ -459,11 +548,14 @@ async function undoEdit(entryIndex: number, entry: Extract<HistoryEntry, { type:
     const next = [...current]
     next[entry.index] = restored
     setPageDrawings(entry.pageNum, next)
-    history.splice(entryIndex, 1)
+    const undone = moveHistoryEntryToRedo(entryIndex)
+    if (undone?.type === 'edit') undone.original = restored
     redrawPage(entry.pageNum)
   } catch (e: any) {
     console.warn('撤销形状编辑失败:', e?.message || e)
     redrawPage(entry.pageNum)
+  } finally {
+    endSave()
   }
 }
 
@@ -487,14 +579,123 @@ async function undoLastStroke(pageNum: number) {
     entry.pageNum,
     drawings.filter((drawing) => drawing !== entry.stroke && drawing.id !== entry.stroke.id),
   )
+  beginSave()
   try {
     await deleteDrawing(entry.stroke)
-    history.splice(entryIndex, 1)
+    moveHistoryEntryToRedo(entryIndex)
   } catch (e: any) {
     console.warn('撤销绘制失败:', e?.message || e)
     await reloadDrawings(entry.pageNum)
+  } finally {
+    endSave()
   }
   redrawPage(entry.pageNum)
+}
+
+async function redoDraw(entry: Extract<HistoryEntry, { type: 'draw' }>) {
+  beginSave()
+  try {
+    const saved = await saveDrawing(entry.pageNum, stripDrawingId(entry.stroke))
+    entry.stroke = saved
+    const drawings = drawingsByPage.value.get(entry.pageNum) || []
+    setPageDrawings(entry.pageNum, [...drawings, saved])
+    moveRedoEntryToHistory(entry)
+    redrawPage(entry.pageNum)
+  } catch (e: any) {
+    console.warn('重做绘制失败:', e?.message || e)
+    await reloadDrawings(entry.pageNum)
+  } finally {
+    endSave()
+  }
+}
+
+async function redoErase(entry: Extract<HistoryEntry, { type: 'erase' }>) {
+  beginSave()
+  try {
+    const savedFragments = await replacePersistedDrawings(
+      entry.pageNum,
+      entry.replacements.map((replacement) => replacement.original),
+      entry.replacements.flatMap((replacement) =>
+        replacement.fragments.map((fragment) => stripDrawingId(fragment))),
+    )
+
+    let fragmentOffset = 0
+    const savedGroups = entry.replacements.map((replacement) => {
+      const group = savedFragments.slice(fragmentOffset, fragmentOffset + replacement.fragments.length)
+      fragmentOffset += replacement.fragments.length
+      return group
+    })
+    entry.replacements = entry.replacements.map((replacement, index) => ({
+      ...replacement,
+      fragments: savedGroups[index],
+    }))
+
+    const current = drawingsByPage.value.get(entry.pageNum) || []
+    const originalIDs = new Set(
+      entry.replacements
+        .map((replacement) => replacement.original.id)
+        .filter((id): id is number => id !== undefined),
+    )
+    const fragmentsByIndex = new Map(
+      entry.replacements.map((replacement, index) => [replacement.index, savedGroups[index]]),
+    )
+    const nextDrawings = current.flatMap((drawing, index) => {
+      if (drawing.id && originalIDs.has(drawing.id)) {
+        return fragmentsByIndex.get(index) || []
+      }
+      return [drawing]
+    })
+    setPageDrawings(entry.pageNum, nextDrawings)
+    moveRedoEntryToHistory(entry)
+    redrawPage(entry.pageNum)
+  } catch (e: any) {
+    console.warn('重做擦除失败:', e?.message || e)
+    await reloadDrawings(entry.pageNum)
+  } finally {
+    endSave()
+  }
+}
+
+async function redoEdit(entry: Extract<HistoryEntry, { type: 'edit' }>) {
+  beginSave()
+  try {
+    const replacement = (await replacePersistedDrawings(
+      entry.pageNum,
+      [entry.original],
+      [stripDrawingId(entry.replacement)],
+    ))[0]
+    entry.replacement = replacement
+    const current = drawingsByPage.value.get(entry.pageNum) || []
+    const currentIndex = findCurrentDrawingIndex(current, entry.index, entry.original)
+    if (currentIndex >= 0) {
+      const next = [...current]
+      next[currentIndex] = replacement
+      setPageDrawings(entry.pageNum, next)
+      entry.index = currentIndex
+    }
+    moveRedoEntryToHistory(entry)
+    redrawPage(entry.pageNum)
+  } catch (e: any) {
+    console.warn('重做形状编辑失败:', e?.message || e)
+    await reloadDrawings(entry.pageNum)
+  } finally {
+    endSave()
+  }
+}
+
+async function redoLastStroke() {
+  const entry = redoStack.pop()
+  if (!entry) return
+  updateHistoryState()
+  if (entry.type === 'draw') {
+    await redoDraw(entry)
+    return
+  }
+  if (entry.type === 'erase') {
+    await redoErase(entry)
+    return
+  }
+  await redoEdit(entry)
 }
 
 async function loadPDF() {
@@ -524,18 +725,51 @@ async function renderAllPages() {
   }
 }
 
+async function setZoom(value: number) {
+  const next = Math.max(30, Math.min(240, Math.round(value)))
+  if (next === zoom.value) return
+  zoom.value = next
+  await renderAllPages()
+}
+
 function zoomIn() {
-  if (zoom.value < 200) {
-    zoom.value = Math.min(200, zoom.value + 10)
-    void renderAllPages()
-  }
+  void setZoom(zoom.value + 10)
 }
 
 function zoomOut() {
-  if (zoom.value > 30) {
-    zoom.value = Math.max(30, zoom.value - 10)
-    void renderAllPages()
+  void setZoom(zoom.value - 10)
+}
+
+async function fitWidth() {
+  if (!pdfDoc || !container.value) return
+  const page = await pdfDoc.getPage(Math.max(1, Math.min(currentPage.value, pageCount.value)))
+  const viewport = page.getViewport({ scale: 1 })
+  const availableWidth = Math.max(240, container.value.clientWidth - 32)
+  await setZoom((availableWidth / viewport.width) * 100)
+}
+
+async function fitPage() {
+  if (!pdfDoc || !container.value) return
+  const page = await pdfDoc.getPage(Math.max(1, Math.min(currentPage.value, pageCount.value)))
+  const viewport = page.getViewport({ scale: 1 })
+  const availableWidth = Math.max(240, container.value.clientWidth - 32)
+  const availableHeight = Math.max(240, container.value.clientHeight - 32)
+  await setZoom(Math.min(
+    (availableWidth / viewport.width) * 100,
+    (availableHeight / viewport.height) * 100,
+  ))
+}
+
+function jumpToPage(page: number) {
+  if (!container.value || pageCount.value < 1) return
+  const targetPage = Math.max(1, Math.min(pageCount.value, Math.round(page)))
+  const wrapper = container.value.querySelector<HTMLElement>(
+    `.pdf-page-wrapper[data-page="${targetPage}"]`,
+  )
+  if (wrapper) {
+    container.value.scrollTo({ top: wrapper.offsetTop, behavior: 'smooth' })
   }
+  currentPage.value = targetPage
 }
 
 function onScroll() {
@@ -557,22 +791,34 @@ watch(currentPage, (page) => {
   if (pageCount.value > 0) {
     emit('progress', Math.min(Math.round((page / pageCount.value) * 100), 100))
     emit('currentPageChange', page)
+    updateHistoryState()
   }
 })
 watch(pageCount, (count) => emit('pageCountChange', count))
+watch(zoom, (value) => emit('zoomChange', value))
 
 onMounted(() => {
+  updateHistoryState()
+  emit('zoomChange', zoom.value)
+  emit('savingStateChange', false)
   void loadPDF()
 })
 
 defineExpose({
   zoomIn,
   zoomOut,
+  setZoom,
+  fitWidth,
+  fitPage,
+  jumpToPage,
   undoLastStroke,
+  redoLastStroke,
   applySelectedTextStyle,
   zoom,
   currentPage,
   pageCount,
+  canUndo,
+  canRedo,
 })
 </script>
 
@@ -585,7 +831,6 @@ defineExpose({
         v-for="pageNum in pageCount"
         :key="pageNum"
         :ref="(element: any) => { if (element) pageRefs[pageNum - 1] = element }"
-        :data-page="pageNum"
         :page-num="pageNum"
         :scale="zoom / 100"
         :drawings="drawingsByPage.get(pageNum) || []"
