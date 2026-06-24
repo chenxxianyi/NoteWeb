@@ -10,10 +10,14 @@ import type {
   DrawingReplacement,
   PDFActiveTool,
   Point,
-  ShapeDrawing,
   ShapeType,
+  TextDrawing,
 } from './pdfDrawingTypes'
-import { isShapeDrawing } from './pdfDrawingTypes'
+import {
+  isShapeDrawing,
+  isTextDrawing,
+  sameDrawingIdentity,
+} from './pdfDrawingTypes'
 import { remapStrokeInHistory } from './pdfAnnotationHistory'
 
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
@@ -25,12 +29,14 @@ const props = defineProps<{
   eraseMode: 'freehand' | 'area'
   penColor: string
   penWidth: number
+  textSize: number
 }>()
 
 const emit = defineEmits<{
   progress: [value: number]
   currentPageChange: [page: number]
   pageCountChange: [count: number]
+  textSelectionChange: [drawing: TextDrawing | null]
 }>()
 
 type EraseHistoryReplacement = {
@@ -63,6 +69,7 @@ const zoom = ref(100)
 const drawingsByPage = ref<Map<number, Drawing[]>>(new Map())
 const history: HistoryEntry[] = []
 let pdfDoc: pdfjs.PDFDocumentProxy | null = null
+const pendingDrawingSaves = new WeakMap<Drawing, Promise<Drawing>>()
 
 function drawingCreateData(pageNum: number, drawing: Drawing): AnnotationReplacementCreate {
   const positionData = isShapeDrawing(drawing)
@@ -73,11 +80,21 @@ function drawingCreateData(pageNum: number, drawing: Drawing): AnnotationReplace
         start: drawing.start,
         end: drawing.end,
       }
-    : {
-        tool: drawing.tool,
-        width: drawing.width,
-        points: drawing.points,
-      }
+    : isTextDrawing(drawing)
+      ? {
+          tool: 'text',
+          text: drawing.text,
+          fontSize: drawing.fontSize,
+          x: drawing.x,
+          y: drawing.y,
+          width: drawing.width,
+          height: drawing.height,
+        }
+      : {
+          tool: drawing.tool,
+          width: drawing.width,
+          points: drawing.points,
+        }
 
   return {
     page: pageNum,
@@ -119,6 +136,21 @@ async function replacePersistedDrawings(
   }))
 }
 
+async function resolvePersistedDrawing(drawing: Drawing): Promise<Drawing> {
+  if (drawing.id !== undefined) return drawing
+
+  const pendingSave = pendingDrawingSaves.get(drawing)
+  if (!pendingSave) {
+    throw new Error('存在尚未保存的批注，无法执行批量替换')
+  }
+  return pendingSave
+}
+
+function findCurrentDrawingIndex(drawings: Drawing[], preferredIndex: number, target: Drawing) {
+  if (sameDrawingIdentity(drawings[preferredIndex], target)) return preferredIndex
+  return drawings.findIndex((drawing) => sameDrawingIdentity(drawing, target))
+}
+
 function setPageDrawings(pageNum: number, drawings: Drawing[]) {
   drawingsByPage.value.set(pageNum, [...drawings])
 }
@@ -135,17 +167,36 @@ function cancelReplacementPreview(pageNum: number) {
   pageRefs.value[pageNum - 1]?.cancelPendingReplacement()
 }
 
+function applySelectedTextStyle(style: { color: string; fontSize: number }) {
+  for (const wrapper of pageRefs.value) {
+    if (wrapper?.applySelectedTextStyle?.(style)) return true
+  }
+  return false
+}
+
 async function addDrawing(pageNum: number, drawing: Drawing) {
   const drawings = drawingsByPage.value.get(pageNum) || []
   const optimistic = { ...drawing }
   setPageDrawings(pageNum, [...drawings, optimistic])
+  const savePromise = saveDrawing(pageNum, drawing)
+  pendingDrawingSaves.set(optimistic, savePromise)
 
   try {
-    const saved = await saveDrawing(pageNum, drawing)
+    const saved = await savePromise
+    pendingDrawingSaves.delete(optimistic)
     const current = drawingsByPage.value.get(pageNum) || []
-    setPageDrawings(pageNum, current.map((item) => (item === optimistic ? saved : item)))
-    history.push({ type: 'draw', pageNum, stroke: saved })
+    let stillPresent = false
+    const next = current.map((item) => {
+      if (item !== optimistic) return item
+      stillPresent = true
+      return saved
+    })
+    if (stillPresent) {
+      setPageDrawings(pageNum, next)
+      history.push({ type: 'draw', pageNum, stroke: saved })
+    }
   } catch (e: any) {
+    pendingDrawingSaves.delete(optimistic)
     console.warn('保存批注失败:', e?.message || e)
     setPageDrawings(
       pageNum,
@@ -162,6 +213,10 @@ function validPoint(value: unknown): value is { x: number; y: number } {
   if (!value || typeof value !== 'object') return false
   const point = value as Record<string, unknown>
   return typeof point.x === 'number' && typeof point.y === 'number'
+}
+
+function validNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
 }
 
 function loadExistingDrawings() {
@@ -185,6 +240,26 @@ function loadExistingDrawings() {
         width: typeof position.width === 'number' ? position.width : 3,
         start: position.start,
         end: position.end,
+      }
+    } else if (
+      position.tool === 'text' &&
+      typeof position.text === 'string' &&
+      validNumber(position.x) &&
+      validNumber(position.y) &&
+      validNumber(position.width)
+    ) {
+      drawing = {
+        id: annotation.id,
+        tool: 'text',
+        color: annotation.color || '#FF0000',
+        fontSize: validNumber(position.fontSize) ? position.fontSize : 24,
+        text: position.text,
+        x: position.x,
+        y: position.y,
+        width: position.width,
+        height: validNumber(position.height)
+          ? position.height
+          : (validNumber(position.fontSize) ? position.fontSize : 24) * 1.25 + 8,
       }
     } else if (Array.isArray(position.points) && position.points.length >= 2) {
       drawing = {
@@ -227,11 +302,44 @@ async function replaceDrawings(pageNum: number, replacements: DrawingReplacement
   }
 
   try {
-    const fragmentCounts = operations.map((operation) => operation.fragments.length)
+    const resolvedOperations = await Promise.all(operations.map(async (operation) => ({
+      ...operation,
+      optimisticOriginal: operation.original,
+      original: await resolvePersistedDrawing(operation.original),
+    })))
+    const currentDrawings = drawingsByPage.value.get(pageNum) || []
+    const normalizedOperations = resolvedOperations
+      .map((operation) => {
+        const localIndex = findCurrentDrawingIndex(
+          currentDrawings,
+          operation.index,
+          operation.optimisticOriginal,
+        )
+        const persistedIndex = findCurrentDrawingIndex(
+          currentDrawings,
+          operation.index,
+          operation.original,
+        )
+        const index = localIndex >= 0 ? localIndex : persistedIndex
+        if (index < 0) return null
+        return {
+          ...operation,
+          index,
+          original: operation.original,
+        }
+      })
+      .filter((operation): operation is NonNullable<typeof operation> => operation !== null)
+
+    if (normalizedOperations.length === 0) {
+      cancelReplacementPreview(pageNum)
+      return
+    }
+
+    const fragmentCounts = normalizedOperations.map((operation) => operation.fragments.length)
     const savedFragments = await replacePersistedDrawings(
       pageNum,
-      operations.map((operation) => operation.original),
-      operations.flatMap((operation) => operation.fragments),
+      normalizedOperations.map((operation) => operation.original),
+      normalizedOperations.flatMap((operation) => operation.fragments),
     )
 
     let fragmentOffset = 0
@@ -241,16 +349,16 @@ async function replaceDrawings(pageNum: number, replacements: DrawingReplacement
       return group
     })
     const fragmentsByIndex = new Map(
-      operations.map((operation, index) => [operation.index, savedGroups[index]]),
+      normalizedOperations.map((operation, index) => [operation.index, savedGroups[index]]),
     )
-    const nextDrawings = drawings.flatMap((drawing, index) =>
+    const nextDrawings = currentDrawings.flatMap((drawing, index) =>
       fragmentsByIndex.get(index) || [drawing])
 
     setPageDrawings(pageNum, nextDrawings)
     history.push({
       type: 'erase',
       pageNum,
-      replacements: operations.map((operation, index) => ({
+      replacements: normalizedOperations.map((operation, index) => ({
         index: operation.index,
         original: operation.original,
         fragments: savedGroups[index],
@@ -262,24 +370,31 @@ async function replaceDrawings(pageNum: number, replacements: DrawingReplacement
   }
 }
 
-async function editShape(pageNum: number, index: number, shape: ShapeDrawing) {
+async function editDrawing(pageNum: number, index: number, drawing: Drawing) {
   const drawings = drawingsByPage.value.get(pageNum) || []
   const original = drawings[index]
-  if (!original || !isShapeDrawing(original)) {
+  if (!original) {
     cancelReplacementPreview(pageNum)
     return
   }
 
   try {
-    const replacement = (await replacePersistedDrawings(pageNum, [original], [shape]))[0]
-    const next = [...drawings]
-    next[index] = replacement
+    const persistedOriginal = await resolvePersistedDrawing(original)
+    const replacement = (await replacePersistedDrawings(pageNum, [persistedOriginal], [drawing]))[0]
+    const current = drawingsByPage.value.get(pageNum) || []
+    const currentIndex = findCurrentDrawingIndex(current, index, original)
+    if (currentIndex < 0) {
+      cancelReplacementPreview(pageNum)
+      return
+    }
+    const next = [...current]
+    next[currentIndex] = replacement
     setPageDrawings(pageNum, next)
     history.push({
       type: 'edit',
       pageNum,
-      index,
-      original,
+      index: currentIndex,
+      original: persistedOriginal,
       replacement,
     })
   } catch (e: any) {
@@ -450,7 +565,15 @@ onMounted(() => {
   void loadPDF()
 })
 
-defineExpose({ zoomIn, zoomOut, undoLastStroke, zoom, currentPage, pageCount })
+defineExpose({
+  zoomIn,
+  zoomOut,
+  undoLastStroke,
+  applySelectedTextStyle,
+  zoom,
+  currentPage,
+  pageCount,
+})
 </script>
 
 <template>
@@ -471,13 +594,17 @@ defineExpose({ zoomIn, zoomOut, undoLastStroke, zoom, currentPage, pageCount })
         :erase-mode="props.eraseMode"
         :pen-color="props.penColor"
         :pen-width="props.penWidth"
+        :text-size="props.textSize"
         :eraser-size="props.penWidth"
         @drawing-created="(drawing: Drawing) => { void addDrawing(pageNum, drawing) }"
         @drawings-replaced="(replacements: DrawingReplacement[]) => {
           void replaceDrawings(pageNum, replacements)
         }"
-        @shape-edited="(index: number, shape: ShapeDrawing) => {
-          void editShape(pageNum, index, shape)
+        @drawing-edited="(index: number, drawing: Drawing) => {
+          void editDrawing(pageNum, index, drawing)
+        }"
+        @text-selection-changed="(drawing: TextDrawing | null) => {
+          emit('textSelectionChange', drawing)
         }"
       />
     </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as pdfjs from 'pdfjs-dist'
 import {
   boundsIntersect,
@@ -12,8 +12,11 @@ import {
 } from './pdfAnnotationGeometry'
 import type { Bounds } from './pdfAnnotationGeometry'
 import {
+  drawingsEqual,
+  drawingReplacementChangesDrawing,
   isFreehandStroke,
   isShapeDrawing,
+  isTextDrawing,
 } from './pdfDrawingTypes'
 import type {
   Drawing,
@@ -23,6 +26,7 @@ import type {
   Point,
   ShapeDrawing,
   ShapeType,
+  TextDrawing,
 } from './pdfDrawingTypes'
 import {
   getShapeBounds,
@@ -36,6 +40,18 @@ import {
   splitShapeByRect,
 } from './pdfShapeGeometry'
 import type { ShapeHandle } from './pdfShapeGeometry'
+import {
+  getTextBounds,
+  getTextResizeHandlePoint,
+  hitTestText,
+  hitTestTextResizeHandle,
+  MIN_TEXT_WIDTH,
+  moveText,
+  resizeTextBox,
+  TEXT_LINE_HEIGHT,
+  TEXT_PADDING,
+  wrapTextLines,
+} from './pdfTextGeometry'
 
 export type {
   Drawing,
@@ -43,6 +59,7 @@ export type {
   FreehandStroke,
   Point,
   ShapeDrawing,
+  TextDrawing,
 }
 
 const props = defineProps<{
@@ -54,13 +71,15 @@ const props = defineProps<{
   eraseMode: 'freehand' | 'area'
   penColor: string
   penWidth: number
+  textSize: number
   eraserSize: number
 }>()
 
 const emit = defineEmits<{
   drawingCreated: [drawing: Drawing]
   drawingsReplaced: [replacements: DrawingReplacement[]]
-  shapeEdited: [index: number, shape: ShapeDrawing]
+  drawingEdited: [index: number, drawing: Drawing]
+  textSelectionChanged: [drawing: TextDrawing | null]
 }>()
 
 interface ShapeEditGesture {
@@ -72,18 +91,38 @@ interface ShapeEditGesture {
   preview: ShapeDrawing
 }
 
+interface TextEditGesture {
+  index: number
+  mode: 'move' | 'resize'
+  originPoint: Point
+  original: TextDrawing
+  preview: TextDrawing
+}
+
+interface TextEditorState {
+  mode: 'create' | 'edit'
+  index: number | null
+  original: TextDrawing | null
+  draft: TextDrawing
+}
+
 const pdfCanvas = ref<HTMLCanvasElement | null>(null)
 const drawCanvas = ref<HTMLCanvasElement | null>(null)
 const overlayCanvas = ref<HTMLCanvasElement | null>(null)
 const eraserCursor = ref<HTMLElement | null>(null)
 const areaSelection = ref<HTMLElement | null>(null)
+const textArea = ref<HTMLTextAreaElement | null>(null)
+const textEditor = ref<TextEditorState | null>(null)
 
 let pdfPage: pdfjs.PDFPageProxy | null = null
 let isDrawing = false
 let currentStroke: FreehandStroke | null = null
 let currentShape: ShapeDrawing | null = null
 let selectedShapeIndex: number | null = null
+let selectedTextIndex: number | null = null
 let shapeEdit: ShapeEditGesture | null = null
+let textEdit: TextEditGesture | null = null
+let ignoreNextTextBlur = false
 let eraserPath: Point[] = []
 let queuedPreviewPoints: Point[] = []
 let lastPreviewPoint: Point | null = null
@@ -120,6 +159,7 @@ async function renderPDF(pdfDoc: pdfjs.PDFDocumentProxy) {
 }
 
 function drawingContours(drawing: Drawing): Point[][] {
+  if (isTextDrawing(drawing)) return []
   return isShapeDrawing(drawing)
     ? shapeToContours(drawing)
     : [drawing.points]
@@ -142,6 +182,11 @@ function getDrawingPath(drawing: Drawing): Path2D {
 }
 
 function drawDrawing(ctx: CanvasRenderingContext2D, drawing: Drawing) {
+  if (isTextDrawing(drawing)) {
+    drawTextDrawing(ctx, drawing)
+    return
+  }
+
   ctx.save()
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
@@ -149,6 +194,32 @@ function drawDrawing(ctx: CanvasRenderingContext2D, drawing: Drawing) {
   ctx.lineWidth = drawing.width
   if (drawing.tool === 'highlighter') ctx.globalAlpha = 0.35
   ctx.stroke(getDrawingPath(drawing))
+  ctx.restore()
+}
+
+function textFont(text: TextDrawing): string {
+  return `${text.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+}
+
+function drawTextDrawing(ctx: CanvasRenderingContext2D, text: TextDrawing) {
+  ctx.save()
+  ctx.fillStyle = text.color
+  ctx.font = textFont(text)
+  ctx.textBaseline = 'top'
+  const lineHeight = text.fontSize * TEXT_LINE_HEIGHT
+  const lines = wrapTextLines(
+    text.text,
+    text.fontSize,
+    text.width,
+    (value) => ctx.measureText(value).width,
+  )
+  lines.forEach((line, index) => {
+    ctx.fillText(
+      line,
+      text.x + TEXT_PADDING,
+      text.y + TEXT_PADDING + index * lineHeight,
+    )
+  })
   ctx.restore()
 }
 
@@ -189,6 +260,25 @@ function canvasUnits(screenPixels: number): number {
   return screenPixels * (canvas.width / rect.width)
 }
 
+const textEditorStyle = computed(() => {
+  const editor = textEditor.value
+  const canvas = drawCanvas.value
+  if (!editor || !canvas) return {}
+  const rect = canvas.getBoundingClientRect()
+  const scaleX = rect.width / canvas.width
+  const scaleY = rect.height / canvas.height
+  const bounds = getTextBounds(editor.draft)
+  return {
+    transform: `translate3d(${bounds.left * scaleX}px, ${bounds.top * scaleY}px, 0)`,
+    width: `${(bounds.right - bounds.left) * scaleX}px`,
+    height: `${(bounds.bottom - bounds.top) * scaleY}px`,
+    minHeight: `${(bounds.bottom - bounds.top) * scaleY}px`,
+    color: editor.draft.color,
+    fontSize: `${editor.draft.fontSize * scaleY}px`,
+    lineHeight: String(TEXT_LINE_HEIGHT),
+  }
+})
+
 function drawShapeOverlay(shape: ShapeDrawing, includeShape: boolean, includeHandles: boolean) {
   const canvas = overlayCanvas.value
   const ctx = canvas?.getContext('2d')
@@ -224,10 +314,57 @@ function drawShapeOverlay(shape: ShapeDrawing, includeShape: boolean, includeHan
   ctx.restore()
 }
 
+function drawTextOverlay(text: TextDrawing, includeText: boolean, includeHandles: boolean) {
+  const canvas = overlayCanvas.value
+  const ctx = canvas?.getContext('2d')
+  if (!canvas || !ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+  if (includeText) drawDrawing(ctx, text)
+  if (!includeHandles) return
+
+  const bounds = getTextBounds(text)
+  ctx.save()
+  ctx.strokeStyle = '#2563eb'
+  ctx.lineWidth = canvasUnits(1)
+  ctx.setLineDash([canvasUnits(5), canvasUnits(3)])
+  ctx.strokeRect(
+    bounds.left,
+    bounds.top,
+    Math.max(0, bounds.right - bounds.left),
+    Math.max(0, bounds.bottom - bounds.top),
+  )
+  ctx.setLineDash([])
+
+  const handle = getTextResizeHandlePoint(text)
+  const size = canvasUnits(8)
+  ctx.fillStyle = '#ffffff'
+  ctx.strokeStyle = '#2563eb'
+  ctx.lineWidth = canvasUnits(1.5)
+  ctx.fillRect(handle.x - size / 2, handle.y - size / 2, size, size)
+  ctx.strokeRect(handle.x - size / 2, handle.y - size / 2, size, size)
+  ctx.restore()
+}
+
 function selectedShape(): ShapeDrawing | null {
   if (selectedShapeIndex === null) return null
   const drawing = props.drawings[selectedShapeIndex]
   return drawing && isShapeDrawing(drawing) ? drawing : null
+}
+
+function selectedText(): TextDrawing | null {
+  if (selectedTextIndex === null) return null
+  const drawing = props.drawings[selectedTextIndex]
+  return drawing && isTextDrawing(drawing) ? drawing : null
+}
+
+function notifyTextSelection() {
+  emit('textSelectionChanged', selectedText())
+}
+
+function clearSelectedText(notify = true) {
+  selectedTextIndex = null
+  if (notify) emit('textSelectionChanged', null)
 }
 
 function redrawSelection() {
@@ -235,12 +372,21 @@ function redrawSelection() {
     drawShapeOverlay(shapeEdit.preview, true, true)
     return
   }
+  if (textEdit) {
+    drawTextOverlay(textEdit.preview, true, true)
+    return
+  }
   const shape = selectedShape()
   if (shape && props.activeTool === 'select') {
     drawShapeOverlay(shape, false, true)
-  } else {
-    clearOverlay()
+    return
   }
+  const text = selectedText()
+  if (text && props.activeTool === 'select') {
+    drawTextOverlay(text, false, true)
+    return
+  }
+  clearOverlay()
 }
 
 function currentCanvasRect(): DOMRect {
@@ -353,9 +499,11 @@ function finishPreviewFrame() {
 
 function getDrawingBounds(drawing: Drawing): Bounds | null {
   if (drawingBoundsCache.has(drawing)) return drawingBoundsCache.get(drawing) || null
-  const bounds = isShapeDrawing(drawing)
-    ? getShapeBounds(drawing)
-    : getStrokeBounds(drawing)
+  const bounds = isTextDrawing(drawing)
+    ? getTextBounds(drawing)
+    : isShapeDrawing(drawing)
+      ? getShapeBounds(drawing)
+      : getStrokeBounds(drawing)
   drawingBoundsCache.set(drawing, bounds)
   return bounds
 }
@@ -364,6 +512,7 @@ function splitDrawingByPath(drawing: Drawing, path: Point[], radius: number): Dr
   if (isFreehandStroke(drawing)) {
     return splitStrokeByEraserPath(drawing, path, radius)
   }
+  if (isTextDrawing(drawing)) return [drawing]
   return splitShapeByEraserPath(drawing, path, radius) || [drawing]
 }
 
@@ -371,6 +520,7 @@ function splitDrawingByRect(drawing: Drawing, start: Point, end: Point): Drawing
   if (isFreehandStroke(drawing)) {
     return splitStrokeByRect(drawing, start, end)
   }
+  if (isTextDrawing(drawing)) return [drawing]
   return splitShapeByRect(drawing, start, end) || [drawing]
 }
 
@@ -385,8 +535,9 @@ function collectReplacements(
     const bounds = getDrawingBounds(drawing)
     if (!bounds || !boundsIntersect(bounds, gestureBounds)) continue
     const fragments = split(drawing)
-    const unchanged = fragments.length === 1 && fragments[0] === drawing
-    if (!unchanged) replacements.push({ index, fragments })
+    if (drawingReplacementChangesDrawing(drawing, fragments)) {
+      replacements.push({ index, fragments })
+    }
   }
   return replacements
 }
@@ -407,6 +558,143 @@ function findAreaReplacements(start: Point, end: Point): DrawingReplacement[] {
   )
 }
 
+function focusTextEditor() {
+  void nextTick(() => {
+    const element = textArea.value
+    if (!element) return
+    requestAnimationFrame(() => {
+      if (textArea.value !== element) return
+      ignoreNextTextBlur = true
+      element.focus({ preventScroll: true })
+      element.select()
+      requestAnimationFrame(() => {
+        ignoreNextTextBlur = false
+      })
+    })
+  })
+}
+
+function defaultTextWidth(point: Point): number {
+  const canvas = drawCanvas.value
+  if (!canvas) return 220
+  return Math.max(MIN_TEXT_WIDTH, Math.min(canvas.width - point.x - TEXT_PADDING, canvasUnits(220)))
+}
+
+function startNewTextEditor(point: Point) {
+  selectedShapeIndex = null
+  clearSelectedText()
+  clearOverlay()
+  textEditor.value = {
+    mode: 'create',
+    index: null,
+    original: null,
+    draft: {
+      tool: 'text',
+      color: props.penColor,
+      fontSize: props.textSize,
+      text: '',
+      x: point.x,
+      y: point.y,
+      width: defaultTextWidth(point),
+      height: props.textSize * TEXT_LINE_HEIGHT + TEXT_PADDING * 2,
+    },
+  }
+  focusTextEditor()
+}
+
+function startExistingTextEditor(index: number, text: TextDrawing) {
+  selectedShapeIndex = null
+  selectedTextIndex = index
+  notifyTextSelection()
+  textEditor.value = {
+    mode: 'edit',
+    index,
+    original: text,
+    draft: {
+      ...text,
+      text: text.text,
+    },
+  }
+  redrawDrawings([], index)
+  clearOverlay()
+  focusTextEditor()
+}
+
+function updateTextEditorValue(event: Event) {
+  if (!textEditor.value) return
+  textEditor.value.draft = {
+    ...textEditor.value.draft,
+    text: (event.target as HTMLTextAreaElement).value,
+  }
+}
+
+function cancelTextEditor(redraw = true) {
+  textEditor.value = null
+  if (redraw) {
+    redrawDrawings()
+    redrawSelection()
+  }
+}
+
+function commitTextEditor() {
+  const editor = textEditor.value
+  if (!editor) return
+  const text = editor.draft.text.replace(/\s+$/g, '')
+  if (!text.trim()) {
+    cancelTextEditor(editor.mode === 'edit')
+    return
+  }
+
+  const drawing: TextDrawing = {
+    ...editor.draft,
+    text,
+    width: Math.max(MIN_TEXT_WIDTH, editor.draft.width),
+    height: editor.draft.height,
+  }
+  textEditor.value = null
+
+  if (editor.mode === 'create') {
+    emit('drawingCreated', drawing)
+    return
+  }
+
+  if (
+    editor.index !== null &&
+    editor.original &&
+    !drawingsEqual(editor.original, drawing)
+  ) {
+    awaitingReplacementCommit = true
+    selectedTextIndex = editor.index
+    redrawDrawings([{ index: editor.index, fragments: [drawing] }])
+    drawTextOverlay(drawing, false, true)
+    emit('drawingEdited', editor.index, drawing)
+    return
+  }
+
+  redrawDrawings()
+  redrawSelection()
+}
+
+function onTextEditorKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelTextEditor()
+    return
+  }
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault()
+    commitTextEditor()
+  }
+}
+
+function onTextEditorBlur() {
+  if (ignoreNextTextBlur) {
+    focusTextEditor()
+    return
+  }
+  commitTextEditor()
+}
+
 function resetGestureState(redraw = false) {
   if (previewFrame !== null) cancelAnimationFrame(previewFrame)
   previewFrame = null
@@ -418,6 +706,7 @@ function resetGestureState(redraw = false) {
   gestureRect = null
   currentShape = null
   shapeEdit = null
+  textEdit = null
   updateEraserCursor({ clientX: 0, clientY: 0 }, false)
   hideAreaSelection()
   if (redraw) {
@@ -432,10 +721,10 @@ function finishPointerCapture(event: PointerEvent) {
   }
 }
 
-function topmostShapeAt(point: Point, tolerance: number): number | null {
+function topmostTextAt(point: Point, tolerance: number): number | null {
   for (let index = props.drawings.length - 1; index >= 0; index--) {
     const drawing = props.drawings[index]
-    if (isShapeDrawing(drawing) && hitTestShape(drawing, point, tolerance)) return index
+    if (isTextDrawing(drawing) && hitTestText(drawing, point, tolerance)) return index
   }
   return null
 }
@@ -447,6 +736,7 @@ function startShapeEdit(
   handle: ShapeHandle | null,
 ) {
   selectedShapeIndex = index
+  clearSelectedText()
   shapeEdit = {
     index,
     mode: handle ? 'resize' : 'move',
@@ -459,6 +749,60 @@ function startShapeEdit(
   drawShapeOverlay(shape, true, true)
 }
 
+function startTextEdit(
+  index: number,
+  text: TextDrawing,
+  point: Point,
+  mode: 'move' | 'resize',
+) {
+  selectedTextIndex = index
+  notifyTextSelection()
+  selectedShapeIndex = null
+  textEdit = {
+    index,
+    mode,
+    originPoint: point,
+    original: text,
+    preview: text,
+  }
+  redrawDrawings([], index)
+  drawTextOverlay(text, true, true)
+}
+
+function deleteSelectedDrawing() {
+  if (awaitingReplacementCommit || textEditor.value) return
+  const index = selectedTextIndex ?? selectedShapeIndex
+  if (index === null) return
+  const drawing = props.drawings[index]
+  if (!drawing) return
+  awaitingReplacementCommit = true
+  clearSelectedText()
+  selectedShapeIndex = null
+  clearOverlay()
+  redrawDrawings([{ index, fragments: [] }])
+  emit('drawingsReplaced', [{ index, fragments: [] }])
+}
+
+function applySelectedTextStyle(style: { color: string; fontSize: number }): boolean {
+  if (awaitingReplacementCommit || textEditor.value || selectedTextIndex === null) return false
+  const text = selectedText()
+  if (!text) return false
+
+  const next: TextDrawing = {
+    ...text,
+    color: style.color,
+    fontSize: style.fontSize,
+    height: Math.max(text.height, style.fontSize * TEXT_LINE_HEIGHT + TEXT_PADDING * 2),
+  }
+  if (drawingsEqual(text, next)) return true
+
+  awaitingReplacementCommit = true
+  redrawDrawings([{ index: selectedTextIndex, fragments: [next] }])
+  drawTextOverlay(next, false, true)
+  emit('drawingEdited', selectedTextIndex, next)
+  return true
+}
+
 function onPointerDown(event: PointerEvent) {
   if (props.activeTool === 'none' || awaitingReplacementCommit || !drawCanvas.value) return
   gestureRect = drawCanvas.value.getBoundingClientRect()
@@ -468,6 +812,7 @@ function onPointerDown(event: PointerEvent) {
 
   if (props.activeTool === 'eraser') {
     selectedShapeIndex = null
+    clearSelectedText()
     clearOverlay()
     pendingReplacements = []
     if (props.eraseMode === 'area') {
@@ -482,8 +827,19 @@ function onPointerDown(event: PointerEvent) {
     return
   }
 
+  if (props.activeTool === 'text') {
+    event.preventDefault()
+    if (textEditor.value) commitTextEditor()
+    isDrawing = false
+    finishPointerCapture(event)
+    gestureRect = null
+    if (!awaitingReplacementCommit) startNewTextEditor(point)
+    return
+  }
+
   if (props.activeTool === 'shape') {
     selectedShapeIndex = null
+    clearSelectedText()
     currentShape = {
       tool: 'shape',
       shapeType: props.shapeType,
@@ -498,6 +854,18 @@ function onPointerDown(event: PointerEvent) {
 
   if (props.activeTool === 'select') {
     const tolerance = canvasUnits(8)
+    const selectedTextDrawing = selectedText()
+    if (selectedTextDrawing && selectedTextIndex !== null) {
+      if (hitTestTextResizeHandle(selectedTextDrawing, point, tolerance)) {
+        startTextEdit(selectedTextIndex, selectedTextDrawing, point, 'resize')
+        return
+      }
+      if (hitTestText(selectedTextDrawing, point, tolerance)) {
+        startTextEdit(selectedTextIndex, selectedTextDrawing, point, 'move')
+        return
+      }
+    }
+
     const selected = selectedShape()
     if (selected && selectedShapeIndex !== null) {
       const handle = hitTestShapeHandle(selected, point, tolerance)
@@ -507,22 +875,30 @@ function onPointerDown(event: PointerEvent) {
       }
     }
 
-    const hitIndex = topmostShapeAt(point, tolerance)
-    if (hitIndex !== null) {
-      const shape = props.drawings[hitIndex] as ShapeDrawing
-      startShapeEdit(hitIndex, shape, point, null)
-    } else {
-      selectedShapeIndex = null
-      clearOverlay()
-      isDrawing = false
-      finishPointerCapture(event)
-      gestureRect = null
+    for (let index = props.drawings.length - 1; index >= 0; index--) {
+      const drawing = props.drawings[index]
+      if (isTextDrawing(drawing) && hitTestText(drawing, point, tolerance)) {
+        const mode = hitTestTextResizeHandle(drawing, point, tolerance) ? 'resize' : 'move'
+        startTextEdit(index, drawing, point, mode)
+        return
+      }
+      if (isShapeDrawing(drawing) && hitTestShape(drawing, point, tolerance)) {
+        startShapeEdit(index, drawing, point, null)
+        return
+      }
     }
+
+    selectedShapeIndex = null
+    clearSelectedText()
+    clearOverlay()
+    isDrawing = false
+    finishPointerCapture(event)
+    gestureRect = null
     return
   }
 
   currentStroke = {
-    tool: props.activeTool,
+    tool: props.activeTool === 'highlighter' ? 'highlighter' : 'pen',
     color: props.penColor,
     width: props.penWidth,
     points: [point],
@@ -565,6 +941,18 @@ function onPointerMove(event: PointerEvent) {
     return
   }
 
+  if (props.activeTool === 'select' && textEdit) {
+    textEdit.preview = textEdit.mode === 'move'
+      ? moveText(
+          textEdit.original,
+          point.x - textEdit.originPoint.x,
+          point.y - textEdit.originPoint.y,
+        )
+      : resizeTextBox(textEdit.original, point)
+    drawTextOverlay(textEdit.preview, true, true)
+    return
+  }
+
   if (!currentStroke) return
   currentStroke.points.push(point)
   const ctx = drawCanvas.value.getContext('2d')
@@ -581,13 +969,6 @@ function onPointerMove(event: PointerEvent) {
   ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y)
   ctx.stroke()
   ctx.restore()
-}
-
-function shapesEqual(left: ShapeDrawing, right: ShapeDrawing): boolean {
-  return left.start.x === right.start.x &&
-    left.start.y === right.start.y &&
-    left.end.x === right.end.x &&
-    left.end.y === right.end.y
 }
 
 function onPointerUp(event: PointerEvent) {
@@ -631,10 +1012,26 @@ function onPointerUp(event: PointerEvent) {
     const edit = shapeEdit
     shapeEdit = null
     gestureRect = null
-    if (!shapesEqual(edit.original, edit.preview)) {
+    if (!drawingsEqual(edit.original, edit.preview)) {
       awaitingReplacementCommit = true
       drawShapeOverlay(edit.preview, true, true)
-      emit('shapeEdited', edit.index, edit.preview)
+      emit('drawingEdited', edit.index, edit.preview)
+    } else {
+      redrawDrawings()
+      redrawSelection()
+    }
+    return
+  }
+
+  if (props.activeTool === 'select' && textEdit) {
+    const edit = textEdit
+    textEdit = null
+    gestureRect = null
+    if (!drawingsEqual(edit.original, edit.preview)) {
+      awaitingReplacementCommit = true
+      selectedTextIndex = edit.index
+      drawTextOverlay(edit.preview, true, true)
+      emit('drawingEdited', edit.index, edit.preview)
     } else {
       redrawDrawings()
       redrawSelection()
@@ -658,9 +1055,36 @@ function onPointerCancel(event: PointerEvent) {
   resetGestureState(true)
 }
 
+function onDoubleClick(event: MouseEvent) {
+  if (props.activeTool !== 'select' || awaitingReplacementCommit || !drawCanvas.value) return
+  gestureRect = drawCanvas.value.getBoundingClientRect()
+  const point = pageToCanvas(event)
+  const hitIndex = topmostTextAt(point, canvasUnits(8))
+  gestureRect = null
+  if (hitIndex === null) return
+  const drawing = props.drawings[hitIndex]
+  if (drawing && isTextDrawing(drawing)) startExistingTextEditor(hitIndex, drawing)
+}
+
+function onWindowKeyDown(event: KeyboardEvent) {
+  const target = event.target as HTMLElement | null
+  const tagName = target?.tagName
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA' || target?.isContentEditable) return
+  if (props.activeTool !== 'select') return
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return
+  if (selectedTextIndex === null && selectedShapeIndex === null) return
+  event.preventDefault()
+  deleteSelectedDrawing()
+}
+
 watch(() => props.drawings, () => {
   if (selectedShapeIndex !== null && selectedShapeIndex >= props.drawings.length) {
     selectedShapeIndex = null
+  }
+  if (selectedTextIndex !== null && selectedTextIndex >= props.drawings.length) {
+    clearSelectedText()
+  } else if (selectedTextIndex !== null) {
+    notifyTextSelection()
   }
   if (awaitingReplacementCommit) {
     awaitingReplacementCommit = false
@@ -671,10 +1095,14 @@ watch(() => props.drawings, () => {
   redrawSelection()
 })
 
-watch(() => [props.activeTool, props.eraseMode, props.shapeType], () => {
+watch(() => [props.activeTool, props.eraseMode, props.shapeType, props.textSize], () => {
+  if (textEditor.value && props.activeTool !== 'text') commitTextEditor()
   if (isDrawing || awaitingReplacementCommit) return
   pendingReplacements = []
-  if (props.activeTool !== 'select') selectedShapeIndex = null
+  if (props.activeTool !== 'select') {
+    selectedShapeIndex = null
+    clearSelectedText()
+  }
   resetGestureState(true)
 })
 
@@ -703,7 +1131,21 @@ function cancelPendingReplacement() {
   resetGestureState(true)
 }
 
-defineExpose({ renderPDF, redrawDrawings, clearDrawLayer, cancelPendingReplacement })
+onMounted(() => {
+  window.addEventListener('keydown', onWindowKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onWindowKeyDown)
+})
+
+defineExpose({
+  renderPDF,
+  redrawDrawings,
+  clearDrawLayer,
+  cancelPendingReplacement,
+  applySelectedTextStyle,
+})
 </script>
 
 <template>
@@ -719,8 +1161,22 @@ defineExpose({ renderPDF, redrawDrawings, clearDrawLayer, cancelPendingReplaceme
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
       @pointercancel="onPointerCancel"
+      @dblclick="onDoubleClick"
     />
     <canvas ref="overlayCanvas" class="pdf-overlay-layer" />
+    <textarea
+      v-if="textEditor"
+      ref="textArea"
+      class="pdf-text-editor"
+      :style="textEditorStyle"
+      :value="textEditor.draft.text"
+      placeholder="输入文本"
+      spellcheck="false"
+      @input="updateTextEditorValue"
+      @pointerdown.stop
+      @keydown.stop="onTextEditorKeydown"
+      @blur="onTextEditorBlur"
+    />
     <div ref="eraserCursor" class="eraser-cursor" />
     <div ref="areaSelection" class="eraser-area-selection" />
   </div>
@@ -763,9 +1219,36 @@ defineExpose({ renderPDF, redrawDrawings, clearDrawLayer, cancelPendingReplaceme
   cursor: default;
 }
 
+.pdf-draw-layer--text {
+  cursor: text;
+}
+
 .pdf-overlay-layer {
   pointer-events: none;
   z-index: 1;
+}
+
+.pdf-text-editor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1.5px solid #2563eb;
+  border-radius: 3px;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.16);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.pdf-text-editor::placeholder {
+  color: rgba(37, 99, 235, 0.55);
 }
 
 .eraser-cursor,

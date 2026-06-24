@@ -6,7 +6,7 @@ import { useAnnotationStore } from '../stores/annotationStore'
 import { marked } from 'marked'
 import PDFViewer from '../components/PDFViewer.vue'
 import AnnotationToolbar from '../components/AnnotationToolbar.vue'
-import type { PDFActiveTool, ShapeType } from '../components/pdfDrawingTypes'
+import type { PDFActiveTool, ShapeType, TextDrawing } from '../components/pdfDrawingTypes'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,6 +34,8 @@ const pdfShapeType = ref<ShapeType>('rectangle')
 const pdfShapeMenuOpen = ref(false)
 const pdfPenColor = ref('#FF0000')
 const pdfPenWidth = ref(3)
+const pdfTextSize = ref(24)
+const pdfSelectedText = ref<TextDrawing | null>(null)
 const pdfEraserSize = ref(24)
 const pdfEraseMode = ref<'freehand' | 'area'>('freehand')
 const pdfZoom = ref(100)
@@ -43,11 +45,17 @@ const pdfPageCount = ref(1)
 const pdfUsesStyle = computed(() =>
   pdfActiveTool.value === 'pen' ||
   pdfActiveTool.value === 'highlighter' ||
-  pdfActiveTool.value === 'shape')
+  pdfActiveTool.value === 'shape' ||
+  pdfActiveTool.value === 'text' ||
+  pdfSelectedText.value !== null)
+
+const pdfShowsTextControls = computed(() =>
+  pdfActiveTool.value === 'text' || pdfSelectedText.value !== null)
 
 function pdfSwitchTool(tool: PDFActiveTool) {
   pdfActiveTool.value = pdfActiveTool.value === tool ? 'none' : tool
   if (tool !== 'shape') pdfShapeMenuOpen.value = false
+  if (tool !== 'select') pdfSelectedText.value = null
 }
 function pdfToggleShapeMenu() {
   pdfShapeMenuOpen.value = !pdfShapeMenuOpen.value
@@ -65,6 +73,19 @@ function pdfZoomOut() { pdfRef.value?.zoomOut() }
 function pdfUndo() { pdfRef.value?.undoLastStroke(pdfCurPage.value) }
 function onPDFPageChange(page: number) { pdfCurPage.value = page }
 function onPDFPageCountChange(count: number) { pdfPageCount.value = count }
+function onPDFTextSelectionChange(drawing: TextDrawing | null) {
+  pdfSelectedText.value = drawing
+  if (!drawing) return
+  pdfPenColor.value = drawing.color
+  pdfTextSize.value = drawing.fontSize
+}
+function pdfApplySelectedTextStyle() {
+  if (!pdfSelectedText.value) return
+  pdfRef.value?.applySelectedTextStyle?.({
+    color: pdfPenColor.value,
+    fontSize: pdfTextSize.value,
+  })
+}
 
 // Progress tracking
 let progressTimer: ReturnType<typeof setInterval> | null = null
@@ -308,6 +329,9 @@ onUnmounted(() => {
         <button :class="['tb-btn', { active: pdfActiveTool === 'highlighter' }]" title="荧光笔" @click="pdfSwitchTool('highlighter')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 11l-6 6v3h9l3-23"/><path d="M9 3h-2l-7 14h2l7-14z"/></svg>
         </button>
+        <button :class="['tb-btn', { active: pdfActiveTool === 'text' }]" title="添加文本" @click="pdfSwitchTool('text')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M4 6V4h16v2"/><path d="M12 4v16"/><path d="M8 20h8"/></svg>
+        </button>
         <button :class="['tb-btn', { active: pdfActiveTool === 'select' }]" title="选择形状" @click="pdfSwitchTool('select')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M5 3l14 8-6 2-3 6z"/></svg>
         </button>
@@ -340,8 +364,10 @@ onUnmounted(() => {
         <button class="tb-btn" title="撤销" @click="pdfUndo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
         </button>
-        <input v-if="pdfUsesStyle" type="color" v-model="pdfPenColor" class="tb-color-picker" title="颜色" />
-        <input v-if="pdfUsesStyle" type="range" v-model.number="pdfPenWidth" class="tb-size-slider" min="1" max="20" title="粗细" />
+        <input v-if="pdfUsesStyle" type="color" v-model="pdfPenColor" class="tb-color-picker" title="颜色" @change="pdfApplySelectedTextStyle" />
+        <input v-if="pdfShowsTextControls" type="range" v-model.number="pdfTextSize" class="tb-size-slider tb-size-slider--text" min="10" max="72" title="字号" @change="pdfApplySelectedTextStyle" />
+        <span v-if="pdfShowsTextControls" class="tb-label">字号 {{ pdfTextSize }}px</span>
+        <input v-else-if="pdfUsesStyle" type="range" v-model.number="pdfPenWidth" class="tb-size-slider" min="1" max="20" title="粗细" />
         <div class="tb-divider"></div>
         <span class="tb-label">{{ pdfCurPage }}/{{ pdfPageCount }}</span>
         <button class="tb-btn" title="缩小" @click="pdfZoomOut">
@@ -454,9 +480,11 @@ onUnmounted(() => {
         :erase-mode="pdfEraseMode"
         :pen-color="pdfPenColor"
         :pen-width="pdfActiveTool === 'eraser' ? pdfEraserSize : pdfPenWidth"
+        :text-size="pdfTextSize"
         @progress="onPDFProgress"
         @current-page-change="onPDFPageChange"
         @page-count-change="onPDFPageCountChange"
+        @text-selection-change="onPDFTextSelectionChange"
       />
     </div>
 
@@ -495,6 +523,7 @@ onUnmounted(() => {
 .tb-color-picker { width: 24px; height: 24px; border: 1px solid var(--border-color); border-radius: 4px; padding: 0; cursor: pointer; background: transparent; }
 .tb-size-slider { width: 60px; height: 20px; cursor: pointer; accent-color: var(--accent); }
 .tb-size-slider--eraser { width: 88px; }
+.tb-size-slider--text { width: 96px; }
 .reader-topbar.eraser-active .tb-color-picker,
 .reader-topbar.eraser-active .tb-size-slider:not(.tb-size-slider--eraser) {
   display: none;
