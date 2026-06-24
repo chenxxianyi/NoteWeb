@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -25,28 +26,28 @@ func NewDocumentService(repo *repository.DocumentRepo, userRepo *repository.User
 }
 
 type DocumentResponse struct {
-	ID        uint    `json:"id"`
-	Title     string  `json:"title"`
-	FileType  string  `json:"file_type"`
-	FileSize  int64   `json:"file_size"`
+	ID           uint    `json:"id"`
+	Title        string  `json:"title"`
+	FileType     string  `json:"file_type"`
+	FileSize     int64   `json:"file_size"`
 	ReadProgress float64 `json:"read_progress"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 
 type DocumentDetailResponse struct {
-	ID            uint   `json:"id"`
-	Title         string `json:"title"`
-	FileName      string `json:"file_name"`
-	FileType      string `json:"file_type"`
-	MimeType      string `json:"mime_type"`
-	FileSize      int64  `json:"file_size"`
-	ParsedContent string `json:"parsed_content"`
-	PageCount     int    `json:"page_count"`
-	WordCount     int    `json:"word_count"`
+	ID            uint    `json:"id"`
+	Title         string  `json:"title"`
+	FileName      string  `json:"file_name"`
+	FileType      string  `json:"file_type"`
+	MimeType      string  `json:"mime_type"`
+	FileSize      int64   `json:"file_size"`
+	ParsedContent string  `json:"parsed_content"`
+	PageCount     int     `json:"page_count"`
+	WordCount     int     `json:"word_count"`
 	ReadProgress  float64 `json:"read_progress"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	CreatedAt     string  `json:"created_at"`
+	UpdatedAt     string  `json:"updated_at"`
 }
 
 func toDocResponse(d *models.Document) DocumentResponse {
@@ -56,6 +57,26 @@ func toDocResponse(d *models.Document) DocumentResponse {
 		CreatedAt: d.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: d.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+func shouldParseAsText(extOrType string) bool {
+	switch strings.TrimPrefix(strings.ToLower(extOrType), ".") {
+	case "md", "txt":
+		return true
+	default:
+		return false
+	}
+}
+
+func textFileContent(data []byte) string {
+	return string(bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}))
+}
+
+func textStats(content string) (int, int) {
+	if content == "" {
+		return 0, 0
+	}
+	return strings.Count(content, "\n") + 1, len(strings.Fields(content))
 }
 
 func (s *DocumentService) List(userID uint, search, fileType string, page, pageSize int) ([]DocumentResponse, error) {
@@ -78,13 +99,26 @@ func (s *DocumentService) GetDetail(docID, userID uint) (*DocumentDetailResponse
 	if doc.UserID != userID {
 		return nil, errors.New("文档不存在")
 	}
+	if doc.ParsedContent == "" && shouldParseAsText(doc.FileType) && doc.StoragePath != "" {
+		savePath := filepath.Join(s.uploadDir, doc.StoragePath)
+		if data, err := os.ReadFile(savePath); err == nil {
+			content := textFileContent(data)
+			pageCount, wordCount := textStats(content)
+			if err := s.repo.UpdateParsedContent(doc.ID, content, pageCount, wordCount); err == nil {
+				doc.ParsedContent = content
+				doc.ParsedStatus = "done"
+				doc.PageCount = pageCount
+				doc.WordCount = wordCount
+			}
+		}
+	}
 	return &DocumentDetailResponse{
 		ID: doc.ID, Title: doc.Title, FileName: doc.FileName,
 		FileType: doc.FileType, MimeType: doc.MimeType, FileSize: doc.FileSize,
 		ParsedContent: doc.ParsedContent, PageCount: doc.PageCount, WordCount: doc.WordCount,
 		ReadProgress: doc.ReadProgress,
-		CreatedAt: doc.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: doc.UpdatedAt.Format(time.RFC3339),
+		CreatedAt:    doc.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    doc.UpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 
@@ -130,6 +164,22 @@ func (s *DocumentService) Upload(userID uint, fileName string, fileSize int64, r
 		return nil, err
 	}
 
+	if shouldParseAsText(ext) {
+		data, err := os.ReadFile(savePath)
+		if err != nil {
+			return nil, fmt.Errorf("鏂囦欢瑙ｆ瀽澶辫触: %w", err)
+		}
+		content := textFileContent(data)
+		pageCount, wordCount := textStats(content)
+		if err := s.repo.UpdateParsedContent(doc.ID, content, pageCount, wordCount); err != nil {
+			return nil, err
+		}
+		doc.ParsedContent = content
+		doc.ParsedStatus = "done"
+		doc.PageCount = pageCount
+		doc.WordCount = wordCount
+	}
+
 	// Update user storage
 	s.userRepo.UpdateStorage(userID, fileSize)
 
@@ -164,8 +214,8 @@ func (s *DocumentService) GetContent(docID, userID uint) (*DocumentDetailRespons
 		FileType: doc.FileType, MimeType: doc.MimeType, FileSize: doc.FileSize,
 		ParsedContent: doc.ParsedContent, PageCount: doc.PageCount, WordCount: doc.WordCount,
 		ReadProgress: doc.ReadProgress,
-		CreatedAt: doc.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: doc.UpdatedAt.Format(time.RFC3339),
+		CreatedAt:    doc.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    doc.UpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 

@@ -23,6 +23,10 @@ export interface ShapeDrawing {
   end: Point
 }
 
+export type TextErasure =
+  | { type: 'path'; radius: number; points: Point[] }
+  | { type: 'rect'; start: Point; end: Point }
+
 export interface TextDrawing {
   id?: number
   tool: 'text'
@@ -33,6 +37,7 @@ export interface TextDrawing {
   y: number
   width: number
   height: number
+  erasures?: TextErasure[]
 }
 
 export type Drawing = FreehandStroke | ShapeDrawing | TextDrawing
@@ -87,16 +92,39 @@ export function drawingsEqual(left: Drawing, right: Drawing): boolean {
   if (isTextDrawing(left) || isTextDrawing(right)) {
     return isTextDrawing(left) &&
       isTextDrawing(right) &&
-      left.fontSize === right.fontSize &&
-      left.text === right.text &&
-      left.x === right.x &&
-      left.y === right.y &&
-      left.width === right.width &&
-      left.height === right.height
+      textDrawingsEqual(left, right)
   }
 
   if (left.width !== right.width) return false
   return pointsEqual(left.points, right.points)
+}
+
+function textErasuresEqual(left: TextErasure[] = [], right: TextErasure[] = []): boolean {
+  return left.length === right.length && left.every((erasure, index) => {
+    const other = right[index]
+    if (!other || erasure.type !== other.type) return false
+    if (erasure.type === 'path') {
+      return other.type === 'path' &&
+        erasure.radius === other.radius &&
+        pointsEqual(erasure.points, other.points)
+    }
+    return other.type === 'rect' &&
+      erasure.start.x === other.start.x &&
+      erasure.start.y === other.start.y &&
+      erasure.end.x === other.end.x &&
+      erasure.end.y === other.end.y
+  })
+}
+
+export function textDrawingsEqual(left: TextDrawing, right: TextDrawing): boolean {
+  return left.color === right.color &&
+    left.fontSize === right.fontSize &&
+    left.text === right.text &&
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height &&
+    textErasuresEqual(left.erasures, right.erasures)
 }
 
 export function drawingReplacementChangesDrawing(

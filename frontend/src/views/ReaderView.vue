@@ -24,7 +24,6 @@ import {
   MousePointer2,
   Palette,
   PenLine,
-  Printer,
   Redo2,
   Search,
   Settings,
@@ -37,6 +36,7 @@ import {
 } from 'lucide-vue-next'
 import PDFViewer from '../components/PDFViewer.vue'
 import AnnotationToolbar from '../components/AnnotationToolbar.vue'
+import type { Annotation } from '../types/annotation'
 import type { PDFActiveTool, ShapeType, TextDrawing } from '../components/pdfDrawingTypes'
 
 const route = useRoute()
@@ -64,8 +64,15 @@ const pdfActiveTool = ref<PDFActiveTool>('none')
 const pdfShapeType = ref<ShapeType>('rectangle')
 const pdfShapeMenuOpen = ref(false)
 const pdfStylePanelOpen = ref(false)
+const pdfStyleButtonRef = ref<HTMLElement | null>(null)
+const pdfStylePanelRef = ref<HTMLElement | null>(null)
 const pdfZoomMenuOpen = ref(false)
 const pdfMoreMenuOpen = ref(false)
+const pdfSearchOpen = ref(false)
+const pdfSettingsOpen = ref(false)
+const pdfSearchQuery = ref('')
+const pdfSearchLoading = ref(false)
+const pdfSearchResults = ref<Array<{ page: number; excerpt: string }>>([])
 const pdfPageEditing = ref(false)
 const pdfPageInput = ref('1')
 const pdfPenColor = ref('#FF0000')
@@ -80,6 +87,35 @@ const pdfPageCount = ref(1)
 const pdfCanUndo = ref(false)
 const pdfCanRedo = ref(false)
 const pdfSaving = ref(false)
+const pdfExporting = ref(false)
+const pdfSharing = ref(false)
+const readerToolbarAutoHide = ref(true)
+const pdfCustomColorInput = ref(pdfPenColor.value)
+const pdfRecentColors = ref<string[]>(['#FF0000', '#00BFFF', '#DCC00D'])
+
+const pdfThemeColors = [
+  '#1F1B16',
+  '#7A6A5C',
+  '#C67A4E',
+  '#E25D5D',
+  '#FF8A3D',
+  '#DCC00D',
+  '#62B255',
+  '#22A7A7',
+  '#2F80ED',
+  '#6C5CE7',
+  '#C43ACF',
+  '#F05A93',
+]
+
+const pdfHighlightColors = [
+  '#FFF2A8',
+  '#D8FF9F',
+  '#BFE3FF',
+  '#FFD2E5',
+  '#E5D4FF',
+  '#FFE1B2',
+]
 
 const pdfUsesStyle = computed(() =>
   pdfActiveTool.value === 'pen' ||
@@ -91,6 +127,9 @@ const pdfUsesStyle = computed(() =>
 
 const pdfShowsTextControls = computed(() =>
   pdfActiveTool.value === 'text' || pdfSelectedText.value !== null)
+
+const pdfShowsColorControls = computed(() =>
+  pdfActiveTool.value !== 'eraser')
 
 const pdfActiveToolLabel = computed(() => {
   const labels: Record<PDFActiveTool, string> = {
@@ -140,6 +179,13 @@ function pdfToggleStylePanel() {
   pdfZoomMenuOpen.value = false
   pdfMoreMenuOpen.value = false
 }
+function onDocumentPointerDown(event: PointerEvent) {
+  if (!pdfStylePanelOpen.value) return
+  const target = event.target
+  if (!(target instanceof Node)) return
+  if (pdfStylePanelRef.value?.contains(target) || pdfStyleButtonRef.value?.contains(target)) return
+  pdfStylePanelOpen.value = false
+}
 function pdfToggleZoomMenu() {
   pdfZoomMenuOpen.value = !pdfZoomMenuOpen.value
   pdfStylePanelOpen.value = false
@@ -151,6 +197,8 @@ function pdfToggleMoreMenu() {
   pdfStylePanelOpen.value = false
   pdfShapeMenuOpen.value = false
   pdfZoomMenuOpen.value = false
+  pdfSearchOpen.value = false
+  pdfSettingsOpen.value = false
 }
 function pdfZoomIn() { pdfRef.value?.zoomIn() }
 function pdfZoomOut() { pdfRef.value?.zoomOut() }
@@ -202,12 +250,15 @@ function onPDFHistoryStateChange(state: { canUndo: boolean; canRedo: boolean }) 
 function onPDFSavingStateChange(saving: boolean) {
   pdfSaving.value = saving
 }
+function onPDFExportStateChange(exporting: boolean) {
+  pdfExporting.value = exporting
+}
 function onPDFTextSelectionChange(drawing: TextDrawing | null) {
   pdfSelectedText.value = drawing
   if (!drawing) return
   pdfPenColor.value = drawing.color
+  pdfCustomColorInput.value = drawing.color
   pdfTextSize.value = drawing.fontSize
-  pdfStylePanelOpen.value = true
 }
 function pdfApplySelectedTextStyle() {
   if (!pdfSelectedText.value) return
@@ -215,6 +266,110 @@ function pdfApplySelectedTextStyle() {
     color: pdfPenColor.value,
     fontSize: pdfTextSize.value,
   })
+}
+function normalizeHexColor(value: string) {
+  const trimmed = value.trim().replace(/^#?/, '#').toUpperCase()
+  const shortHex = /^#([0-9A-F]{3})$/.exec(trimmed)
+  if (shortHex) {
+    const [, hex] = shortHex
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+  }
+  return /^#[0-9A-F]{6}$/.test(trimmed) ? trimmed : null
+}
+function pdfIsActiveColor(color: string) {
+  return normalizeHexColor(color) === normalizeHexColor(pdfPenColor.value)
+}
+function pdfRememberColor(color: string) {
+  const normalized = normalizeHexColor(color)
+  if (!normalized) return
+  pdfRecentColors.value = [
+    normalized,
+    ...pdfRecentColors.value.filter((item) => normalizeHexColor(item) !== normalized),
+  ].slice(0, 6)
+}
+function pdfSetColor(color: string) {
+  const normalized = normalizeHexColor(color)
+  if (!normalized) return
+  pdfPenColor.value = normalized
+  pdfCustomColorInput.value = normalized
+  pdfRememberColor(normalized)
+  pdfApplySelectedTextStyle()
+}
+function pdfCommitCustomColor() {
+  const normalized = normalizeHexColor(pdfCustomColorInput.value)
+  if (!normalized) {
+    pdfCustomColorInput.value = pdfPenColor.value
+    return
+  }
+  pdfSetColor(normalized)
+}
+async function pdfExportAnnotated() {
+  pdfMoreMenuOpen.value = false
+  try {
+    await pdfRef.value?.exportAnnotatedPDF?.()
+  } catch (e: any) {
+    window.alert(e?.message || '导出失败，请稍后再试')
+  }
+}
+function pdfOpenSearch() {
+  pdfMoreMenuOpen.value = false
+  pdfStylePanelOpen.value = false
+  pdfShapeMenuOpen.value = false
+  pdfZoomMenuOpen.value = false
+  pdfSettingsOpen.value = false
+  pdfSearchOpen.value = true
+}
+async function pdfRunSearch() {
+  const query = pdfSearchQuery.value.trim()
+  if (!query) {
+    pdfSearchResults.value = []
+    return
+  }
+  pdfSearchLoading.value = true
+  try {
+    pdfSearchResults.value = await pdfRef.value?.searchDocument?.(query) || []
+  } catch (e: any) {
+    console.warn('搜索 PDF 失败:', e?.message || e)
+    pdfSearchResults.value = []
+  } finally {
+    pdfSearchLoading.value = false
+  }
+}
+function pdfJumpToSearchResult(page: number) {
+  pdfRef.value?.jumpToPage?.(page)
+  pdfSearchOpen.value = false
+}
+function pdfOpenSettings() {
+  pdfMoreMenuOpen.value = false
+  pdfStylePanelOpen.value = false
+  pdfShapeMenuOpen.value = false
+  pdfZoomMenuOpen.value = false
+  pdfSearchOpen.value = false
+  pdfSettingsOpen.value = true
+}
+function setReaderToolbarAutoHide(value: boolean) {
+  readerToolbarAutoHide.value = value
+  if (!value) topbarHidden.value = false
+}
+async function shareDocument() {
+  pdfMoreMenuOpen.value = false
+  pdfSharing.value = true
+  try {
+    const url = window.location.href
+    const title = doc.value?.title || 'NoteWeb 文档'
+    if (navigator.share) {
+      await navigator.share({ title, url })
+      return
+    }
+    await navigator.clipboard.writeText(url)
+    window.alert('分享链接已复制')
+  } catch (e: any) {
+    if (e?.name !== 'AbortError') {
+      window.alert(e?.message || '分享失败，请稍后再试')
+    }
+  } finally {
+    pdfSharing.value = false
+  }
 }
 
 function onReaderKeydown(event: KeyboardEvent) {
@@ -254,6 +409,8 @@ function onReaderKeydown(event: KeyboardEvent) {
     pdfShapeMenuOpen.value = false
     pdfZoomMenuOpen.value = false
     pdfMoreMenuOpen.value = false
+    pdfSearchOpen.value = false
+    pdfSettingsOpen.value = false
     pdfCancelPageEdit()
   }
 }
@@ -382,6 +539,45 @@ function scrollToAnnotation(text: string) {
   })
 }
 
+function annotationLabel(annotation: Annotation): string {
+  if (annotation.selected_text) return annotation.selected_text
+  if (annotation.type !== 'drawing') return annotation.note || '文本批注'
+  const position = annotation.position_data || {}
+  if (position.tool === 'text' && typeof position.text === 'string') return position.text
+  if (position.tool === 'shape') {
+    const shapeNames: Record<string, string> = {
+      line: '直线批注',
+      arrow: '箭头批注',
+      rectangle: '矩形批注',
+      ellipse: '椭圆批注',
+    }
+    return shapeNames[String(position.shapeType)] || '形状批注'
+  }
+  if (position.tool === 'highlighter') return '手写高亮'
+  return '手写批注'
+}
+
+function annotationTypeLabel(annotation: Annotation): string {
+  if (annotation.type === 'highlight') return '高亮'
+  if (annotation.type === 'comment') return '批注'
+  if (annotation.type === 'underline') return '下划线'
+  if (annotation.type !== 'drawing') return annotation.type
+  const position = annotation.position_data || {}
+  if (position.tool === 'text') return '文本'
+  if (position.tool === 'shape') return '形状'
+  if (position.tool === 'highlighter') return '高亮笔'
+  return '画笔'
+}
+
+function goToAnnotation(annotation: Annotation) {
+  if (doc.value?.file_type === 'pdf') {
+    panelRightOpen.value = false
+    void pdfRef.value?.focusAnnotation?.(annotation.id, annotation.page || 1)
+    return
+  }
+  scrollToAnnotation(annotation.selected_text)
+}
+
 /** Calculate reading progress based on scroll position (for non-PDF files) */
 function calcScrollProgress(): number {
   const scrollTop = window.scrollY
@@ -419,13 +615,14 @@ let lastPDFProgress = 0
 
 function handleScroll() {
   const cur = window.scrollY
-  topbarHidden.value = cur > 200 && cur > lastScroll
+  topbarHidden.value = readerToolbarAutoHide.value && cur > 200 && cur > lastScroll
   lastScroll = cur
 }
 
 onMounted(async () => {
   window.addEventListener('scroll', handleScroll)
   window.addEventListener('keydown', onReaderKeydown)
+  document.addEventListener('pointerdown', onDocumentPointerDown, true)
   capturedDocId = docId.value // lock in the id before any redirect may happen
   try {
     await Promise.all([
@@ -454,6 +651,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('keydown', onReaderKeydown)
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
   // Final progress save
   if (progressTimer) {
     clearInterval(progressTimer)
@@ -530,6 +728,7 @@ onUnmounted(() => {
         </button>
         <button
           v-if="pdfUsesStyle"
+          ref="pdfStyleButtonRef"
           :class="['tb-btn', { active: pdfStylePanelOpen }]"
           title="样式设置"
           aria-label="样式设置"
@@ -538,15 +737,77 @@ onUnmounted(() => {
           <Palette />
         </button>
         <div class="tb-popover-wrap">
-          <div v-if="pdfStylePanelOpen" class="tb-popover tb-style-panel">
+          <div v-if="pdfStylePanelOpen" ref="pdfStylePanelRef" class="tb-popover tb-style-panel">
             <div class="tb-popover__header">
               <strong>{{ pdfActiveToolLabel }}样式</strong>
-              <span>{{ pdfPenColor }}</span>
+              <span v-if="pdfShowsColorControls">{{ pdfPenColor }}</span>
             </div>
-            <label class="tool-field">
-              <span>颜色</span>
-              <input type="color" v-model="pdfPenColor" @change="pdfApplySelectedTextStyle" />
-            </label>
+            <div v-if="pdfShowsColorControls" class="color-picker">
+              <div class="color-picker__current">
+                <span class="color-picker__preview" :style="{ background: pdfPenColor }"></span>
+                <span class="color-picker__value">{{ pdfPenColor }}</span>
+              </div>
+
+              <div class="color-section">
+                <div class="color-section__title">主题颜色</div>
+                <div class="color-grid">
+                  <button
+                    v-for="color in pdfThemeColors"
+                    :key="color"
+                    type="button"
+                    :class="['color-chip', { active: pdfIsActiveColor(color) }]"
+                    :style="{ background: color }"
+                    :aria-label="`选择颜色 ${color}`"
+                    @click="pdfSetColor(color)"
+                  ></button>
+                </div>
+              </div>
+
+              <div class="color-section">
+                <div class="color-section__title">高亮颜色</div>
+                <div class="color-grid color-grid--soft">
+                  <button
+                    v-for="color in pdfHighlightColors"
+                    :key="color"
+                    type="button"
+                    :class="['color-chip color-chip--soft', { active: pdfIsActiveColor(color) }]"
+                    :style="{ background: color }"
+                    :aria-label="`选择高亮颜色 ${color}`"
+                    @click="pdfSetColor(color)"
+                  ></button>
+                </div>
+              </div>
+
+              <div class="color-section">
+                <div class="color-section__title">最近使用</div>
+                <div class="color-grid color-grid--recent">
+                  <button
+                    v-for="color in pdfRecentColors"
+                    :key="color"
+                    type="button"
+                    :class="['color-chip', { active: pdfIsActiveColor(color) }]"
+                    :style="{ background: color }"
+                    :aria-label="`选择最近颜色 ${color}`"
+                    @click="pdfSetColor(color)"
+                  ></button>
+                </div>
+              </div>
+
+              <label class="custom-color">
+                <span>自定义</span>
+                <input
+                  v-model="pdfCustomColorInput"
+                  type="text"
+                  inputmode="text"
+                  maxlength="7"
+                  spellcheck="false"
+                  placeholder="#FF0000"
+                  @change="pdfCommitCustomColor"
+                  @keydown.enter.prevent="pdfCommitCustomColor"
+                />
+                <button type="button" @click="pdfCommitCustomColor">应用</button>
+              </label>
+            </div>
             <label v-if="pdfShowsTextControls" class="tool-field">
               <span>字号 {{ pdfTextSize }}px</span>
               <input type="range" v-model.number="pdfTextSize" min="10" max="72" @change="pdfApplySelectedTextStyle" />
@@ -629,11 +890,71 @@ onUnmounted(() => {
           </button>
           <div v-if="pdfMoreMenuOpen" class="tb-popover tb-more-menu">
             <button @click="toggleRight"><MessageSquare />批注列表</button>
-            <button disabled><Search />搜索文档</button>
-            <button disabled><Download />导出带批注 PDF</button>
-            <button disabled><Share2 />分享</button>
-            <button disabled><Printer />打印</button>
-            <button disabled><Settings />阅读设置</button>
+            <button @click="pdfOpenSearch"><Search />搜索文档</button>
+            <button :disabled="pdfExporting || pdfSaving" @click="pdfExportAnnotated">
+              <LoaderCircle v-if="pdfExporting" class="spin" />
+              <Download v-else />
+              {{ pdfExporting ? '导出中...' : '导出带批注 PDF' }}
+            </button>
+            <button :disabled="pdfSharing" @click="shareDocument">
+              <LoaderCircle v-if="pdfSharing" class="spin" />
+              <Share2 v-else />
+              {{ pdfSharing ? '分享中...' : '分享' }}
+            </button>
+            <button @click="pdfOpenSettings"><Settings />阅读设置</button>
+          </div>
+        </div>
+
+        <div v-if="pdfSearchOpen" class="tb-search-panel">
+          <div class="search-box">
+            <Search />
+            <input
+              v-model="pdfSearchQuery"
+              type="search"
+              placeholder="搜索 PDF 文本"
+              @keydown.enter.prevent="pdfRunSearch"
+            />
+            <button type="button" :disabled="pdfSearchLoading" @click="pdfRunSearch">
+              {{ pdfSearchLoading ? '搜索中' : '搜索' }}
+            </button>
+          </div>
+          <div class="search-results">
+            <div v-if="!pdfSearchQuery.trim()" class="search-empty">输入关键词后搜索文档内容</div>
+            <div v-else-if="!pdfSearchLoading && pdfSearchResults.length === 0" class="search-empty">没有找到匹配内容</div>
+            <button
+              v-for="result in pdfSearchResults"
+              :key="`${result.page}-${result.excerpt}`"
+              type="button"
+              class="search-result"
+              @click="pdfJumpToSearchResult(result.page)"
+            >
+              <span>第 {{ result.page }} 页</span>
+              <strong>{{ result.excerpt }}</strong>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="pdfSettingsOpen" class="tb-settings-panel">
+          <div class="settings-panel__header">
+            <strong>阅读设置</strong>
+            <span>PDF</span>
+          </div>
+          <label class="settings-toggle">
+            <span>
+              <strong>滚动时隐藏工具栏</strong>
+              <small>阅读时自动收起顶部工具栏</small>
+            </span>
+            <input
+              type="checkbox"
+              :checked="readerToolbarAutoHide"
+              @change="setReaderToolbarAutoHide(($event.target as HTMLInputElement).checked)"
+            />
+          </label>
+          <div class="settings-grid">
+            <button type="button" @click="pdfFitWidth">适配宽度</button>
+            <button type="button" @click="pdfFitPage">适配页面</button>
+            <button type="button" @click="pdfSetZoom(100)">100%</button>
+            <button type="button" @click="toggleRight">批注侧栏</button>
           </div>
         </div>
       </template>
@@ -693,11 +1014,12 @@ onUnmounted(() => {
             v-for="anno in annotations"
             :key="anno.id"
             class="anno-card"
-            @click="scrollToAnnotation(anno.selected_text)"
+            @click="goToAnnotation(anno)"
           >
-            <div class="anno-card__text">{{ anno.selected_text }}</div>
+            <div class="anno-card__text">{{ annotationLabel(anno) }}</div>
             <div class="anno-card__meta">
-              <span class="anno-highlight" :style="{ background: anno.color || '#FDE68A' }">{{ anno.type === 'highlight' ? '高亮' : anno.type }}</span>
+              <span class="anno-highlight" :style="{ background: anno.color || '#FDE68A' }">{{ annotationTypeLabel(anno) }}</span>
+              <span v-if="doc?.file_type === 'pdf'">第 {{ anno.page || 1 }} 页</span>
               {{ anno.note ? `· ${anno.note}` : '' }}
             </div>
             <button class="anno-card__del" title="删除" @click.stop="deleteAnnotation(anno.id)">
@@ -734,6 +1056,7 @@ onUnmounted(() => {
       <PDFViewer
         ref="pdfRef"
         :document-id="capturedDocId"
+        :document-title="doc?.title"
         :active-tool="pdfActiveTool"
         :shape-type="pdfShapeType"
         :erase-mode="pdfEraseMode"
@@ -746,6 +1069,7 @@ onUnmounted(() => {
         @page-count-change="onPDFPageCountChange"
         @history-state-change="onPDFHistoryStateChange"
         @saving-state-change="onPDFSavingStateChange"
+        @export-state-change="onPDFExportStateChange"
         @text-selection-change="onPDFTextSelectionChange"
       />
     </div>
@@ -808,22 +1132,212 @@ onUnmounted(() => {
 .tb-popover { position: absolute; top: calc(100% + 0.65rem); left: 50%; transform: translateX(-50%); z-index: 35; padding: 0.55rem; background: rgba(250,248,245,0.98); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 8px 24px rgba(61,46,36,0.16); font-family: var(--font-ui); }
 .tb-popover__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.55rem; color: var(--text-primary); font-size: 0.76rem; }
 .tb-popover__header span { color: var(--text-muted); font-size: 0.68rem; }
-.tb-style-panel { width: 210px; }
+.tb-style-panel { width: 274px; }
 .tool-field { display: grid; gap: 0.35rem; margin-bottom: 0.55rem; color: var(--text-muted); font-size: 0.72rem; }
 .tool-field input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
-.tool-field input[type="color"] { width: 100%; height: 32px; padding: 0; border: 1px solid var(--border-color); border-radius: 6px; background: transparent; cursor: pointer; }
 .panel-action,
 .tb-popover button { min-height: 32px; border: none; border-radius: 7px; background: transparent; color: var(--text-secondary); font-family: var(--font-ui); font-size: 0.75rem; cursor: pointer; }
 .panel-action { width: 100%; background: var(--accent-light); color: var(--accent); }
 .tb-popover button:hover,
 .tb-popover button.active { background: var(--accent-light); color: var(--accent); }
 .tb-popover button:disabled { opacity: 0.45; cursor: not-allowed; }
+.color-picker { display: grid; gap: 0.55rem; margin-bottom: 0.6rem; }
+.color-picker__current { display: flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.45rem; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(255,255,255,0.55); }
+.color-picker__preview { width: 28px; height: 18px; border-radius: 4px; border: 1px solid rgba(61,46,36,0.18); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.38); }
+.color-picker__value { color: var(--text-secondary); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.color-section { display: grid; gap: 0.32rem; }
+.color-section__title { color: var(--text-muted); font-size: 0.68rem; }
+.color-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.35rem; }
+.color-grid--soft,
+.color-grid--recent { grid-template-columns: repeat(6, 1fr); }
+.tb-popover .color-chip {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 1px solid rgba(61,46,36,0.18);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.32);
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.tb-popover .color-chip:hover { transform: translateY(-1px); border-color: rgba(198,122,78,0.7); box-shadow: 0 3px 8px rgba(61,46,36,0.12), inset 0 0 0 1px rgba(255,255,255,0.38); }
+.tb-popover .color-chip.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(198,122,78,0.22), inset 0 0 0 2px rgba(255,255,255,0.86); }
+.tb-popover .color-chip.active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: translate(-50%, -60%) rotate(-45deg);
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.45));
+}
+.tb-popover .color-chip--soft.active::after { border-color: #3d2e24; filter: none; }
+.custom-color { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.45rem; color: var(--text-muted); font-size: 0.68rem; }
+.custom-color input { min-width: 0; height: 30px; border: 1px solid var(--border-color); border-radius: 7px; background: rgba(255,255,255,0.66); color: var(--text-primary); font-family: var(--font-ui); font-size: 0.74rem; padding: 0 0.55rem; outline: none; text-transform: uppercase; }
+.custom-color input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(198,122,78,0.16); }
+.custom-color button { min-height: 30px; padding: 0 0.65rem; background: var(--accent-light); color: var(--accent); }
 .tb-zoom-menu,
 .tb-more-menu { display: grid; gap: 0.25rem; min-width: 150px; }
 .tb-zoom-menu button,
 .tb-more-menu button { display: flex; align-items: center; gap: 0.45rem; padding: 0 0.55rem; text-align: left; }
 .tb-zoom-menu svg,
 .tb-more-menu svg { width: 15px; height: 15px; flex-shrink: 0; }
+.tb-search-panel {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  right: 0;
+  z-index: 36;
+  width: min(420px, calc(100vw - 1.5rem));
+  padding: 0.6rem;
+  background: rgba(250,248,245,0.98);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(61,46,36,0.16);
+  font-family: var(--font-ui);
+}
+.search-box {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.7);
+}
+.search-box svg { width: 16px; height: 16px; color: var(--text-muted); }
+.search-box input {
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+}
+.search-box button {
+  min-height: 28px;
+  border: none;
+  border-radius: 7px;
+  padding: 0 0.65rem;
+  background: var(--accent-light);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+.search-box button:disabled { opacity: 0.45; cursor: wait; }
+.search-results {
+  display: grid;
+  gap: 0.35rem;
+  max-height: min(320px, 46vh);
+  overflow-y: auto;
+  margin-top: 0.55rem;
+}
+.search-empty {
+  padding: 1.1rem 0.5rem;
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 0.78rem;
+}
+.search-result {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  min-height: 0;
+  padding: 0.55rem 0.6rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+.search-result:hover { background: var(--accent-light); color: var(--accent); }
+.search-result span { color: var(--text-muted); font-size: 0.68rem; }
+.search-result strong {
+  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.tb-settings-panel {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  right: 0;
+  z-index: 36;
+  width: min(320px, calc(100vw - 1.5rem));
+  padding: 0.65rem;
+  background: rgba(250,248,245,0.98);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(61,46,36,0.16);
+  font-family: var(--font-ui);
+}
+.settings-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+}
+.settings-panel__header span {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.58);
+  color: var(--text-primary);
+}
+.settings-toggle span {
+  display: grid;
+  gap: 0.16rem;
+}
+.settings-toggle strong {
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+.settings-toggle small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+.settings-toggle input {
+  width: 34px;
+  height: 20px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+.settings-grid button {
+  min-height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-light);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+.settings-grid button:hover {
+  filter: brightness(0.98);
+}
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .shape-tool-wrap { position: relative; display: flex; }

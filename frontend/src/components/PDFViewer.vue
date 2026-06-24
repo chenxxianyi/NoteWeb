@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import * as pdfjs from 'pdfjs-dist'
 import request from '../utils/request'
+import { createRasterPdf } from '../utils/pdfRasterExport'
 import type { AnnotationReplacementCreate } from '../api/annotation'
 import { useAnnotationStore } from '../stores/annotationStore'
 import PDFPageWrapper from './PDFPageWrapper.vue'
@@ -11,6 +12,7 @@ import type {
   PDFActiveTool,
   Point,
   ShapeType,
+  TextErasure,
   TextDrawing,
 } from './pdfDrawingTypes'
 import {
@@ -24,6 +26,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
 const props = defineProps<{
   documentId: number
+  documentTitle?: string
   activeTool: PDFActiveTool
   shapeType: ShapeType
   eraseMode: 'freehand' | 'area'
@@ -40,12 +43,17 @@ const emit = defineEmits<{
   historyStateChange: [state: { canUndo: boolean; canRedo: boolean }]
   savingStateChange: [saving: boolean]
   textSelectionChange: [drawing: TextDrawing | null]
+  exportStateChange: [exporting: boolean]
 }>()
 
 type EraseHistoryReplacement = {
   index: number
   original: Drawing
   fragments: Drawing[]
+}
+
+type ReplacementOperation = DrawingReplacement & {
+  original: Drawing
 }
 
 type HistoryEntry =
@@ -71,11 +79,14 @@ const zoom = ref(100)
 const canUndo = ref(false)
 const canRedo = ref(false)
 const pendingSaveCount = ref(0)
+const exporting = ref(false)
+const resolvedDocumentTitle = ref('')
 
 const drawingsByPage = ref<Map<number, Drawing[]>>(new Map())
 const history: HistoryEntry[] = []
 const redoStack: HistoryEntry[] = []
 let pdfDoc: pdfjs.PDFDocumentProxy | null = null
+const pageTextCache = new Map<number, string>()
 const pendingDrawingSaves = new WeakMap<Drawing, Promise<Drawing>>()
 
 function updateHistoryState() {
@@ -108,6 +119,29 @@ function stripDrawingId(drawing: Drawing): Drawing {
   return next
 }
 
+function applyDrawingReplacements(
+  drawings: Drawing[],
+  operations: Array<{ index: number; fragments: Drawing[] }>,
+): Drawing[] {
+  const fragmentsByIndex = new Map(
+    operations.map((operation) => [operation.index, operation.fragments]),
+  )
+  return drawings.flatMap((drawing, index) => fragmentsByIndex.get(index) || [drawing])
+}
+
+function groupSavedFragments(savedFragments: Drawing[], fragmentCounts: number[]): Drawing[][] {
+  let fragmentOffset = 0
+  return fragmentCounts.map((count) => {
+    const group = savedFragments.slice(fragmentOffset, fragmentOffset + count)
+    fragmentOffset += count
+    return group
+  })
+}
+
+function sameDrawingObjects(left: Drawing[], right: Drawing[]) {
+  return left.length === right.length && left.every((drawing, index) => drawing === right[index])
+}
+
 function beginSave() {
   pendingSaveCount.value += 1
   emit('savingStateChange', true)
@@ -136,6 +170,7 @@ function drawingCreateData(pageNum: number, drawing: Drawing): AnnotationReplace
           y: drawing.y,
           width: drawing.width,
           height: drawing.height,
+          erasures: drawing.erasures || [],
         }
       : {
           tool: drawing.tool,
@@ -199,7 +234,7 @@ function findCurrentDrawingIndex(drawings: Drawing[], preferredIndex: number, ta
 }
 
 function setPageDrawings(pageNum: number, drawings: Drawing[]) {
-  drawingsByPage.value.set(pageNum, [...drawings])
+  drawingsByPage.value = new Map(drawingsByPage.value).set(pageNum, [...drawings])
 }
 
 function redrawPage(pageNum: number) {
@@ -269,6 +304,40 @@ function validNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function loadTextErasures(value: unknown): TextErasure[] {
+  if (!Array.isArray(value)) return []
+  const erasures: TextErasure[] = []
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const erasure = item as Record<string, unknown>
+    if (
+      erasure.type === 'path' &&
+      validNumber(erasure.radius) &&
+      Array.isArray(erasure.points) &&
+      erasure.points.every(validPoint)
+    ) {
+      erasures.push({
+        type: 'path',
+        radius: erasure.radius,
+        points: erasure.points.map((point) => ({ x: point.x, y: point.y })),
+      })
+    } else if (
+      erasure.type === 'rect' &&
+      validPoint(erasure.start) &&
+      validPoint(erasure.end)
+    ) {
+      erasures.push({
+        type: 'rect',
+        start: { x: erasure.start.x, y: erasure.start.y },
+        end: { x: erasure.end.x, y: erasure.end.y },
+      })
+    }
+  }
+
+  return erasures
+}
+
 function loadExistingDrawings() {
   const map = new Map<number, Drawing[]>()
   for (const annotation of annotationStore.annotations) {
@@ -310,6 +379,7 @@ function loadExistingDrawings() {
         height: validNumber(position.height)
           ? position.height
           : (validNumber(position.fontSize) ? position.fontSize : 24) * 1.25 + 8,
+        erasures: loadTextErasures(position.erasures),
       }
     } else if (Array.isArray(position.points) && position.points.length >= 2) {
       drawing = {
@@ -351,65 +421,62 @@ async function replaceDrawings(pageNum: number, replacements: DrawingReplacement
     return
   }
 
+  const optimisticOperations: ReplacementOperation[] = operations.map((operation) => ({
+    ...operation,
+    fragments: operation.fragments.map(stripDrawingId),
+  }))
+  const optimisticDrawings = applyDrawingReplacements(drawings, optimisticOperations)
+  const optimisticFragments = optimisticOperations.flatMap((operation) => operation.fragments)
+  setPageDrawings(pageNum, optimisticDrawings)
+
   beginSave()
-  try {
-    const resolvedOperations = await Promise.all(operations.map(async (operation) => ({
+  const replacementSavePromise = (async () => {
+    const resolvedOperations = await Promise.all(optimisticOperations.map(async (operation) => ({
       ...operation,
-      optimisticOriginal: operation.original,
       original: await resolvePersistedDrawing(operation.original),
     })))
-    const currentDrawings = drawingsByPage.value.get(pageNum) || []
-    const normalizedOperations = resolvedOperations
-      .map((operation) => {
-        const localIndex = findCurrentDrawingIndex(
-          currentDrawings,
-          operation.index,
-          operation.optimisticOriginal,
-        )
-        const persistedIndex = findCurrentDrawingIndex(
-          currentDrawings,
-          operation.index,
-          operation.original,
-        )
-        const index = localIndex >= 0 ? localIndex : persistedIndex
-        if (index < 0) return null
-        return {
-          ...operation,
-          index,
-          original: operation.original,
-        }
-      })
-      .filter((operation): operation is NonNullable<typeof operation> => operation !== null)
-
-    if (normalizedOperations.length === 0) {
-      cancelReplacementPreview(pageNum)
-      return
-    }
-
-    const fragmentCounts = normalizedOperations.map((operation) => operation.fragments.length)
+    const fragmentCounts = resolvedOperations.map((operation) => operation.fragments.length)
     const savedFragments = await replacePersistedDrawings(
       pageNum,
-      normalizedOperations.map((operation) => operation.original),
-      normalizedOperations.flatMap((operation) => operation.fragments),
+      resolvedOperations.map((operation) => operation.original),
+      resolvedOperations.flatMap((operation) => operation.fragments),
     )
 
-    let fragmentOffset = 0
-    const savedGroups = fragmentCounts.map((count) => {
-      const group = savedFragments.slice(fragmentOffset, fragmentOffset + count)
-      fragmentOffset += count
-      return group
+    return {
+      resolvedOperations,
+      savedGroups: groupSavedFragments(savedFragments, fragmentCounts),
+    }
+  })()
+  optimisticOperations.forEach((operation, operationIndex) => {
+    operation.fragments.forEach((fragment, fragmentIndex) => {
+      const pendingSave = replacementSavePromise.then(({ savedGroups }) => {
+        const saved = savedGroups[operationIndex]?.[fragmentIndex]
+        if (!saved) throw new Error('Saved eraser fragments do not match local preview')
+        return saved
+      })
+      void pendingSave.catch(() => {})
+      pendingDrawingSaves.set(fragment, pendingSave)
     })
-    const fragmentsByIndex = new Map(
-      normalizedOperations.map((operation, index) => [operation.index, savedGroups[index]]),
-    )
-    const nextDrawings = currentDrawings.flatMap((drawing, index) =>
-      fragmentsByIndex.get(index) || [drawing])
+  })
 
-    setPageDrawings(pageNum, nextDrawings)
+  try {
+    const { resolvedOperations, savedGroups } = await replacementSavePromise
+    const savedByOptimistic = new Map<Drawing, Drawing>()
+    optimisticOperations.forEach((operation, operationIndex) => {
+      operation.fragments.forEach((fragment, fragmentIndex) => {
+        const saved = savedGroups[operationIndex]?.[fragmentIndex]
+        if (saved) savedByOptimistic.set(fragment, saved)
+      })
+    })
+    const currentDrawings = drawingsByPage.value.get(pageNum) || []
+    setPageDrawings(
+      pageNum,
+      currentDrawings.map((drawing) => savedByOptimistic.get(drawing) || drawing),
+    )
     recordHistory({
       type: 'erase',
       pageNum,
-      replacements: normalizedOperations.map((operation, index) => ({
+      replacements: resolvedOperations.map((operation, index) => ({
         index: operation.index,
         original: operation.original,
         fragments: savedGroups[index],
@@ -417,8 +484,20 @@ async function replaceDrawings(pageNum: number, replacements: DrawingReplacement
     })
   } catch (e: any) {
     console.warn('局部擦除保存失败:', e?.message || e)
-    cancelReplacementPreview(pageNum)
+    const currentDrawings = drawingsByPage.value.get(pageNum) || []
+    if (sameDrawingObjects(currentDrawings, optimisticDrawings)) {
+      setPageDrawings(pageNum, drawings)
+    } else if (currentDrawings.some((drawing) => optimisticFragments.includes(drawing))) {
+      try {
+        await reloadDrawings(pageNum)
+      } catch {
+        setPageDrawings(pageNum, drawings)
+      }
+    } else {
+      cancelReplacementPreview(pageNum)
+    }
   } finally {
+    optimisticFragments.forEach((fragment) => pendingDrawingSaves.delete(fragment))
     endSave()
   }
 }
@@ -725,6 +804,41 @@ async function renderAllPages() {
   }
 }
 
+async function getPageText(pageNum: number): Promise<string> {
+  if (!pdfDoc) return ''
+  const cached = pageTextCache.get(pageNum)
+  if (cached !== undefined) return cached
+
+  const page = await pdfDoc.getPage(pageNum)
+  const content = await page.getTextContent()
+  const text = content.items
+    .map((item) => ('str' in item ? item.str : ''))
+    .join('')
+  pageTextCache.set(pageNum, text)
+  return text
+}
+
+async function searchDocument(query: string): Promise<Array<{ page: number; excerpt: string }>> {
+  const keyword = query.trim()
+  if (!keyword || !pdfDoc) return []
+
+  const normalizedKeyword = keyword.toLowerCase()
+  const results: Array<{ page: number; excerpt: string }> = []
+  for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+    const text = await getPageText(pageNum)
+    const lowerText = text.toLowerCase()
+    const index = lowerText.indexOf(normalizedKeyword)
+    if (index < 0) continue
+    const start = Math.max(0, index - 24)
+    const end = Math.min(text.length, index + keyword.length + 36)
+    results.push({
+      page: pageNum,
+      excerpt: `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`,
+    })
+  }
+  return results
+}
+
 async function setZoom(value: number) {
   const next = Math.max(30, Math.min(240, Math.round(value)))
   if (next === zoom.value) return
@@ -760,6 +874,110 @@ async function fitPage() {
   ))
 }
 
+function canvasToJpegBytes(canvas: HTMLCanvasElement, quality = 0.92): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('无法生成 PDF 页面图像'))
+        return
+      }
+      blob.arrayBuffer()
+        .then((buffer) => resolve(new Uint8Array(buffer)))
+        .catch(reject)
+    }, 'image/jpeg', quality)
+  })
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function sanitizeDownloadFileName(value: string) {
+  const normalized = value
+    .trim()
+    .replace(/[\\/]+/g, '-')
+    .replace(/[<>:"|?*\x00-\x1F]/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 120)
+
+  return normalized || `document-${props.documentId}`
+}
+
+async function resolveDocumentTitle() {
+  const propTitle = props.documentTitle?.trim()
+  if (propTitle) {
+    resolvedDocumentTitle.value = propTitle
+    return propTitle
+  }
+  if (resolvedDocumentTitle.value) return resolvedDocumentTitle.value
+
+  try {
+    const response = await request.get(`/documents/${props.documentId}`)
+    const title = String(response.data?.title || '').trim()
+    if (title) {
+      resolvedDocumentTitle.value = title
+      return title
+    }
+  } catch (e: any) {
+    console.warn('获取导出文件名失败:', e?.message || e)
+  }
+
+  return ''
+}
+
+async function exportedFileName() {
+  const title = sanitizeDownloadFileName(await resolveDocumentTitle())
+  return /\.pdf$/i.test(title) ? title : `${title}.pdf`
+}
+
+async function exportAnnotatedPDF() {
+  if (exporting.value || loading.value || error.value) return false
+  if (pendingSaveCount.value > 0) {
+    throw new Error('批注仍在保存中，请稍后再导出')
+  }
+
+  exporting.value = true
+  emit('exportStateChange', true)
+  const previousZoom = zoom.value
+
+  try {
+    const exportScale = 1.5
+    if (zoom.value !== exportScale * 100) {
+      zoom.value = exportScale * 100
+      await renderAllPages()
+    }
+
+    const pages = []
+    for (let pageNum = 1; pageNum <= pageCount.value; pageNum++) {
+      const canvas = pageRefs.value[pageNum - 1]?.exportCompositeCanvas?.()
+      if (!canvas) throw new Error(`第 ${pageNum} 页尚未渲染完成`)
+      pages.push({
+        width: canvas.width,
+        height: canvas.height,
+        jpegData: await canvasToJpegBytes(canvas),
+      })
+    }
+
+    downloadBlob(createRasterPdf(pages), await exportedFileName())
+    return true
+  } finally {
+    if (zoom.value !== previousZoom) {
+      zoom.value = previousZoom
+      await renderAllPages()
+    }
+    exporting.value = false
+    emit('exportStateChange', false)
+  }
+}
+
 function jumpToPage(page: number) {
   if (!container.value || pageCount.value < 1) return
   const targetPage = Math.max(1, Math.min(pageCount.value, Math.round(page)))
@@ -770,6 +988,13 @@ function jumpToPage(page: number) {
     container.value.scrollTo({ top: wrapper.offsetTop, behavior: 'smooth' })
   }
   currentPage.value = targetPage
+}
+
+async function focusAnnotation(annotationId: number, page: number) {
+  const targetPage = Math.max(1, Math.min(pageCount.value || 1, Math.round(page || 1)))
+  jumpToPage(targetPage)
+  await new Promise((resolve) => requestAnimationFrame(resolve))
+  pageRefs.value[targetPage - 1]?.focusAnnotation?.(annotationId)
 }
 
 function onScroll() {
@@ -801,6 +1026,7 @@ onMounted(() => {
   updateHistoryState()
   emit('zoomChange', zoom.value)
   emit('savingStateChange', false)
+  emit('exportStateChange', false)
   void loadPDF()
 })
 
@@ -810,10 +1036,13 @@ defineExpose({
   setZoom,
   fitWidth,
   fitPage,
+  searchDocument,
   jumpToPage,
+  focusAnnotation,
   undoLastStroke,
   redoLastStroke,
   applySelectedTextStyle,
+  exportAnnotatedPDF,
   zoom,
   currentPage,
   pageCount,

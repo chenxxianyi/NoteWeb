@@ -94,11 +94,17 @@ test('text drawing equality includes content, position, width, and font size', (
   const moved: TextDrawing = { ...original, x: 12 }
   const resized: TextDrawing = { ...original, width: 220 }
   const taller: TextDrawing = { ...original, height: 96 }
+  const erased: TextDrawing = {
+    ...original,
+    erasures: [{ type: 'path', radius: 4, points: [{ x: 12, y: 24 }] }],
+  }
 
   assert.equal(drawingsEqual(original, same), true)
   assert.equal(drawingsEqual(original, moved), false)
   assert.equal(drawingsEqual(original, resized), false)
   assert.equal(drawingsEqual(original, taller), false)
+  assert.equal(drawingsEqual(original, erased), false)
   assert.equal(drawingReplacementChangesDrawing(original, [same]), false)
   assert.equal(drawingReplacementChangesDrawing(original, [resized]), true)
+  assert.equal(drawingReplacementChangesDrawing(original, [erased]), true)
 })

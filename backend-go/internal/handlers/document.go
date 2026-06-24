@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/service"
+	"github.com/gin-gonic/gin"
 )
 
 type DocumentHandler struct {
@@ -102,7 +102,7 @@ func (h *DocumentHandler) GetContent(c *gin.Context) {
 	userID := c.GetUint("userID")
 	docID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
-	doc, err := h.svc.GetContent(uint(docID), userID)
+	doc, err := h.svc.GetDetail(uint(docID), userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"detail": err.Error()})
 		return

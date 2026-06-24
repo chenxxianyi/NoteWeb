@@ -2,11 +2,15 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  eraseTextByEraserPath,
+  eraseTextByRect,
   getTextBounds,
   hitTestText,
   hitTestTextResizeHandle,
   moveText,
   resizeTextWidth,
+  textIntersectsEraserPath,
+  textIntersectsRect,
   wrapTextLines,
 } from './pdfTextGeometry.ts'
 import type { TextDrawing } from './pdfDrawingTypes.ts'
@@ -51,6 +55,54 @@ test('text hit testing checks the editable text box', () => {
 
   assert.equal(hitTestText(drawing, { x: 110, y: 90 }), true)
   assert.equal(hitTestText(drawing, { x: 10, y: 10 }), false)
+})
+
+test('freehand eraser path detects text box contact', () => {
+  const drawing = textDrawing({ text: 'hello', x: 100, y: 80, width: 120, height: 40 })
+
+  assert.equal(textIntersectsEraserPath(drawing, [{ x: 90, y: 90 }, { x: 105, y: 90 }], 6), true)
+  assert.equal(textIntersectsEraserPath(drawing, [{ x: 20, y: 20 }, { x: 40, y: 20 }], 6), false)
+})
+
+test('area eraser detects text box overlap', () => {
+  const drawing = textDrawing({ text: 'hello', x: 100, y: 80, width: 120, height: 40 })
+
+  assert.equal(textIntersectsRect(drawing, { x: 90, y: 70 }, { x: 130, y: 95 }), true)
+  assert.equal(textIntersectsRect(drawing, { x: 10, y: 10 }, { x: 30, y: 30 }), false)
+})
+
+test('freehand eraser records a text-local erasure mask', () => {
+  const drawing = textDrawing({ text: 'hello', x: 100, y: 80, width: 200, height: 40, fontSize: 10 })
+  const fragments = eraseTextByEraserPath(
+    drawing,
+    [{ x: 119, y: 90 }],
+    2,
+  )
+
+  assert.equal(fragments.length, 1)
+  assert.equal(fragments[0].text, 'hello')
+  assert.deepEqual(fragments[0].erasures, [{
+    type: 'path',
+    radius: 2,
+    points: [{ x: 119, y: 90 }],
+  }])
+})
+
+test('area eraser records a text-local rectangle erasure', () => {
+  const drawing = textDrawing({ text: 'hello', x: 100, y: 80, width: 200, height: 40, fontSize: 10 })
+  const fragments = eraseTextByRect(
+    drawing,
+    { x: 115, y: 83 },
+    { x: 125, y: 97 },
+  )
+
+  assert.equal(fragments.length, 1)
+  assert.equal(fragments[0].text, 'hello')
+  assert.deepEqual(fragments[0].erasures, [{
+    type: 'rect',
+    start: { x: 115, y: 83 },
+    end: { x: 125, y: 97 },
+  }])
 })
 
 test('text resize handle is detected near the lower right corner', () => {
