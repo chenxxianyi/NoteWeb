@@ -1,10 +1,13 @@
 package service
 
 import (
+	"archive/zip"
 	"bytes"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,8 +71,57 @@ func shouldParseAsText(extOrType string) bool {
 	}
 }
 
+func shouldParseContent(extOrType string) bool {
+	switch strings.TrimPrefix(strings.ToLower(extOrType), ".") {
+	case "md", "txt", "docx":
+		return true
+	default:
+		return false
+	}
+}
+
 func textFileContent(data []byte) string {
 	return string(bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}))
+}
+
+func parseStoredContent(fileType, path string) (string, int, int, error) {
+	switch strings.TrimPrefix(strings.ToLower(fileType), ".") {
+	case "md", "txt":
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", 0, 0, fmt.Errorf("文件解析失败: %w", err)
+		}
+		content := textFileContent(data)
+		pageCount, wordCount := textStats(content)
+		return content, pageCount, wordCount, nil
+	case "docx":
+		content, err := parseDocxContent(path)
+		if err != nil {
+			return "", 0, 0, err
+		}
+		pageCount, wordCount := markdownStats(content)
+		return content, pageCount, wordCount, nil
+	default:
+		return "", 0, 0, errors.New("当前文档不支持内容解析")
+	}
+}
+
+func (s *DocumentService) ensureParsedContent(doc *models.Document) {
+	if doc == nil || doc.ParsedStatus == "done" || !shouldParseContent(doc.FileType) || doc.StoragePath == "" {
+		return
+	}
+	savePath := filepath.Join(s.uploadDir, doc.StoragePath)
+	content, pageCount, wordCount, err := parseStoredContent(doc.FileType, savePath)
+	if err != nil {
+		_ = s.repo.UpdateParsedStatus(doc.ID, "failed")
+		return
+	}
+	if err := s.repo.UpdateParsedContent(doc.ID, content, pageCount, wordCount); err == nil {
+		doc.ParsedContent = content
+		doc.ParsedStatus = "done"
+		doc.PageCount = pageCount
+		doc.WordCount = wordCount
+	}
 }
 
 func textStats(content string) (int, int) {
@@ -77,6 +129,136 @@ func textStats(content string) (int, int) {
 		return 0, 0
 	}
 	return strings.Count(content, "\n") + 1, len(strings.Fields(content))
+}
+
+func markdownStats(content string) (int, int) {
+	if content == "" {
+		return 0, 0
+	}
+	return strings.Count(content, "\n") + 1, len([]rune(strings.TrimSpace(content)))
+}
+
+func parseDocxContent(path string) (string, error) {
+	reader, err := zip.OpenReader(path)
+	if err != nil {
+		return "", fmt.Errorf("DOCX 读取失败: %w", err)
+	}
+	defer reader.Close()
+
+	for _, file := range reader.File {
+		if file.Name != "word/document.xml" {
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			return "", fmt.Errorf("DOCX 正文读取失败: %w", err)
+		}
+		defer rc.Close()
+		return docxXMLToMarkdown(rc)
+	}
+	return "", errors.New("DOCX 正文不存在")
+}
+
+func docxXMLToMarkdown(reader io.Reader) (string, error) {
+	decoder := xml.NewDecoder(reader)
+	var blocks []string
+	var text strings.Builder
+	headingLevel := 0
+	inText := false
+	inParagraph := false
+	inStyle := false
+
+	flushParagraph := func() {
+		content := strings.TrimSpace(text.String())
+		text.Reset()
+		if content == "" {
+			return
+		}
+		if headingLevel >= 1 && headingLevel <= 6 {
+			blocks = append(blocks, strings.Repeat("#", headingLevel)+" "+content)
+		} else {
+			blocks = append(blocks, content)
+		}
+		headingLevel = 0
+	}
+
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("DOCX XML 解析失败: %w", err)
+		}
+
+		switch t := token.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "p":
+				inParagraph = true
+				headingLevel = 0
+			case "pStyle":
+				if inParagraph && headingLevel == 0 {
+					for _, attr := range t.Attr {
+						if attr.Name.Local != "val" {
+							continue
+						}
+						value := strings.ToLower(attr.Value)
+						if strings.HasPrefix(value, "heading") {
+							if level := strings.TrimPrefix(value, "heading"); len(level) > 0 {
+								if level[0] >= '1' && level[0] <= '6' {
+									headingLevel = int(level[0] - '0')
+								}
+							}
+						}
+					}
+				}
+			case "t":
+				inText = true
+			case "tab":
+				if text.Len() > 0 {
+					text.WriteByte('\t')
+				}
+			case "br", "cr":
+				if text.Len() > 0 {
+					text.WriteByte('\n')
+				}
+			case "instrText":
+				inStyle = true
+			}
+		case xml.EndElement:
+			switch t.Name.Local {
+			case "p":
+				flushParagraph()
+				inParagraph = false
+			case "t":
+				inText = false
+			case "instrText":
+				inStyle = false
+			}
+		case xml.CharData:
+			if inText && !inStyle {
+				text.Write([]byte(t))
+			}
+		}
+	}
+	flushParagraph()
+	return strings.Join(blocks, "\n\n"), nil
+}
+
+func imageMimeFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default:
+		return ""
+	}
 }
 
 func (s *DocumentService) List(userID uint, search, fileType string, page, pageSize int) ([]DocumentResponse, error) {
@@ -99,19 +281,7 @@ func (s *DocumentService) GetDetail(docID, userID uint) (*DocumentDetailResponse
 	if doc.UserID != userID {
 		return nil, errors.New("文档不存在")
 	}
-	if doc.ParsedContent == "" && shouldParseAsText(doc.FileType) && doc.StoragePath != "" {
-		savePath := filepath.Join(s.uploadDir, doc.StoragePath)
-		if data, err := os.ReadFile(savePath); err == nil {
-			content := textFileContent(data)
-			pageCount, wordCount := textStats(content)
-			if err := s.repo.UpdateParsedContent(doc.ID, content, pageCount, wordCount); err == nil {
-				doc.ParsedContent = content
-				doc.ParsedStatus = "done"
-				doc.PageCount = pageCount
-				doc.WordCount = wordCount
-			}
-		}
-	}
+	s.ensureParsedContent(doc)
 	return &DocumentDetailResponse{
 		ID: doc.ID, Title: doc.Title, FileName: doc.FileName,
 		FileType: doc.FileType, MimeType: doc.MimeType, FileSize: doc.FileSize,
@@ -164,13 +334,11 @@ func (s *DocumentService) Upload(userID uint, fileName string, fileSize int64, r
 		return nil, err
 	}
 
-	if shouldParseAsText(ext) {
-		data, err := os.ReadFile(savePath)
+	if shouldParseContent(ext) {
+		content, pageCount, wordCount, err := parseStoredContent(ext, savePath)
 		if err != nil {
-			return nil, fmt.Errorf("鏂囦欢瑙ｆ瀽澶辫触: %w", err)
+			return nil, fmt.Errorf("文件解析失败: %w", err)
 		}
-		content := textFileContent(data)
-		pageCount, wordCount := textStats(content)
 		if err := s.repo.UpdateParsedContent(doc.ID, content, pageCount, wordCount); err != nil {
 			return nil, err
 		}
@@ -209,6 +377,7 @@ func (s *DocumentService) GetContent(docID, userID uint) (*DocumentDetailRespons
 	if err != nil || doc.UserID != userID {
 		return nil, errors.New("文档不存在")
 	}
+	s.ensureParsedContent(doc)
 	return &DocumentDetailResponse{
 		ID: doc.ID, Title: doc.Title, FileName: doc.FileName,
 		FileType: doc.FileType, MimeType: doc.MimeType, FileSize: doc.FileSize,
@@ -233,17 +402,71 @@ func (s *DocumentService) GetFileData(docID, userID uint) ([]byte, string, error
 	return data, doc.MimeType, nil
 }
 
+func (s *DocumentService) UploadAsset(docID, userID uint, fileName string, reader io.Reader) (string, error) {
+	doc, err := s.repo.GetByID(docID)
+	if err != nil || doc.UserID != userID {
+		return "", errors.New("文档不存在")
+	}
+
+	ext := strings.ToLower(filepath.Ext(fileName))
+	mimeType := imageMimeFromExt(ext)
+	if mimeType == "" {
+		return "", errors.New("仅支持上传 JPG、PNG、GIF、WEBP 图片")
+	}
+
+	assetName := uuid.New().String() + ext
+	assetPath := filepath.Join(s.uploadDir, "assets", "documents", fmt.Sprintf("%d", docID), assetName)
+	if err := os.MkdirAll(filepath.Dir(assetPath), 0755); err != nil {
+		return "", fmt.Errorf("图片保存失败: %w", err)
+	}
+
+	out, err := os.Create(assetPath)
+	if err != nil {
+		return "", fmt.Errorf("图片保存失败: %w", err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, reader); err != nil {
+		return "", fmt.Errorf("图片写入失败: %w", err)
+	}
+
+	return fmt.Sprintf("/api/v1/documents/%d/assets/%s", docID, assetName), nil
+}
+
+func (s *DocumentService) GetAssetData(docID uint, assetName string) ([]byte, string, error) {
+	if assetName != filepath.Base(assetName) {
+		return nil, "", errors.New("图片不存在")
+	}
+
+	ext := strings.ToLower(filepath.Ext(assetName))
+	mimeType := imageMimeFromExt(ext)
+	if mimeType == "" {
+		if detected := mime.TypeByExtension(ext); strings.HasPrefix(detected, "image/") {
+			mimeType = detected
+		} else {
+			return nil, "", errors.New("图片不存在")
+		}
+	}
+
+	assetPath := filepath.Join(s.uploadDir, "assets", "documents", fmt.Sprintf("%d", docID), assetName)
+	data, err := os.ReadFile(assetPath)
+	if err != nil {
+		return nil, "", errors.New("图片不存在")
+	}
+	return data, mimeType, nil
+}
+
 func (s *DocumentService) UpdateTextContent(docID, userID uint, content string) error {
 	doc, err := s.repo.GetByID(docID)
 	if err != nil || doc.UserID != userID {
 		return errors.New("文档不存在")
 	}
-	if !shouldParseAsText(doc.FileType) {
+	if !shouldParseContent(doc.FileType) {
 		return errors.New("当前文档不支持文本编辑")
 	}
 
 	data := []byte(content)
-	if doc.StoragePath != "" {
+	if doc.StoragePath != "" && shouldParseAsText(doc.FileType) {
 		savePath := filepath.Join(s.uploadDir, doc.StoragePath)
 		if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
 			return fmt.Errorf("文件保存失败: %w", err)

@@ -17,7 +17,7 @@ class Document(Base):
     title = Column(String(256), nullable=False)
     file_name = Column(String(256), nullable=False)
     file_type = Column(String(16), nullable=False)  # pdf, md, docx, txt
-    mime_type = Column(String(64), default="")
+    mime_type = Column(String(128), default="")
     file_size = Column(BigInteger, default=0)
     storage_path = Column(String(512), default="")
     preview_url = Column(String(512), default="")

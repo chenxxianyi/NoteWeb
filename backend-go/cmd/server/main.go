@@ -27,6 +27,9 @@ func main() {
 	if err := db.AutoMigrate(&models.User{}, &models.Document{}, &models.Annotation{}, &models.Note{}); err != nil {
 		log.Fatalf("数据库迁移失败: %v", err)
 	}
+	if err := db.Migrator().AlterColumn(&models.Document{}, "MimeType"); err != nil {
+		log.Fatalf("documents.mime_type 字段迁移失败: %v", err)
+	}
 
 	// Repositories
 	userRepo := repository.NewUserRepo(db)
@@ -63,6 +66,7 @@ func main() {
 	ai.POST("/explain", aiH.Explain)
 	ai.POST("/translate", aiH.Translate)
 	ai.POST("/chat", aiH.Chat)
+	api.GET("/documents/:id/assets/:name", docH.GetAsset)
 
 	// Protected
 	protected := api.Group("")
@@ -75,6 +79,7 @@ func main() {
 		docs.GET("/:id", docH.Get)
 		docs.GET("/:id/content", docH.GetContent)
 		docs.GET("/:id/file", docH.GetFile)
+		docs.POST("/:id/assets", docH.UploadAsset)
 		docs.POST("/upload", docH.Upload)
 		docs.PATCH("/:id", docH.Rename)
 		docs.PATCH("/:id/content", docH.UpdateContent)

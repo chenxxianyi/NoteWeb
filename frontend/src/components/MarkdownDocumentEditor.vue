@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { Node as TiptapNode } from '@tiptap/core'
+import { Node as TiptapNode, type Editor } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Link from '@tiptap/extension-link'
@@ -13,6 +13,7 @@ import {
   Bold,
   Check,
   Code2,
+  FolderOpen,
   FileText,
   Heading1,
   Heading2,
@@ -29,14 +30,18 @@ import {
   Save,
   Search,
   Strikethrough,
+  UploadCloud,
   Undo2,
+  X,
 } from 'lucide-vue-next'
 import { useDocumentStore } from '../stores/documentStore'
+import { uploadDocumentAsset } from '../api/document'
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'saved' | 'error'
 type HeadingItem = {
   id: string
   level: number
+  pos: number
   text: string
 }
 
@@ -58,6 +63,14 @@ const searchOpen = ref(false)
 const searchQuery = ref('')
 const currentMatchIndex = ref(0)
 const headings = ref<HeadingItem[]>([])
+const imagePanelOpen = ref(false)
+const imagePanelMode = ref<'upload' | 'url'>('upload')
+const imageUrl = ref('')
+const imageAlt = ref('')
+const imageUploading = ref(false)
+const imageError = ref('')
+const imageDragging = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let ignoreNextUpdate = false
 
@@ -117,15 +130,30 @@ const editor = useEditor({
       }
       return false
     },
+    handlePaste(_view, event) {
+      const files = Array.from(event.clipboardData?.files || []).filter(isImageFile)
+      if (files.length === 0) return false
+      event.preventDefault()
+      void uploadAndInsertImages(files)
+      return true
+    },
+    handleDrop(_view, event) {
+      const files = Array.from(event.dataTransfer?.files || []).filter(isImageFile)
+      if (files.length === 0) return false
+      event.preventDefault()
+      imageDragging.value = false
+      void uploadAndInsertImages(files)
+      return true
+    },
   },
   onCreate: ({ editor }) => {
-    refreshOutline(editor.getJSON())
+    refreshOutline(editor)
   },
   onUpdate: ({ editor }) => {
     if (ignoreNextUpdate) return
     markdownDraft.value = htmlToMarkdown(editor.getHTML())
     saveState.value = 'dirty'
-    refreshOutline(editor.getJSON())
+    refreshOutline(editor)
     scheduleAutoSave()
   },
 })
@@ -165,7 +193,7 @@ watch(
     markdownDraft.value = content || ''
     ignoreNextUpdate = true
     editor.value?.commands.setContent(markdownToHtml(content || ''), { emitUpdate: false })
-    refreshOutline(editor.value?.getJSON())
+    refreshOutline(editor.value)
     void nextTick(() => {
       ignoreNextUpdate = false
       saveState.value = 'clean'
@@ -280,7 +308,7 @@ function runCommand(command: string) {
   else if (command === 'undo') chain.undo().run()
   else if (command === 'redo') chain.redo().run()
   else if (command === 'link') setLink()
-  else if (command === 'image') insertImage()
+  else if (command === 'image') openImagePanel()
 }
 
 function isActive(command: string) {
@@ -314,54 +342,132 @@ function setLink() {
   current.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run()
 }
 
-function insertImage() {
-  const src = window.prompt('输入图片 URL', 'https://')
-  if (!src?.trim()) return
-  const alt = window.prompt('输入图片说明', '') || ''
-  editor.value?.chain().focus().insertContent(`<img src="${escapeHtmlAttribute(src.trim())}" alt="${escapeHtmlAttribute(alt)}">`).run()
+function openImagePanel() {
+  imagePanelOpen.value = true
+  imageError.value = ''
+  void nextTick(() => {
+    if (imagePanelMode.value === 'url') document.getElementById('markdown-image-url')?.focus()
+  })
 }
 
-function refreshOutline(json: any) {
+function closeImagePanel() {
+  imagePanelOpen.value = false
+  imageDragging.value = false
+  imageError.value = ''
+}
+
+function chooseImageFile() {
+  fileInputRef.value?.click()
+}
+
+function onImageFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files || []).filter(isImageFile)
+  input.value = ''
+  if (files.length === 0) return
+  void uploadAndInsertImages(files)
+}
+
+function onImageDrop(event: DragEvent) {
+  imageDragging.value = false
+  const files = Array.from(event.dataTransfer?.files || []).filter(isImageFile)
+  if (files.length === 0) {
+    imageError.value = '请拖入 JPG、PNG、GIF 或 WEBP 图片'
+    return
+  }
+  void uploadAndInsertImages(files)
+}
+
+function isImageFile(file: File) {
+  return file.type.startsWith('image/') && /\.(jpe?g|png|gif|webp)$/i.test(file.name)
+}
+
+async function uploadAndInsertImages(files: File[]) {
+  imageUploading.value = true
+  imageError.value = ''
+  try {
+    for (const file of files) {
+      const res = await uploadDocumentAsset(props.documentId, file)
+      insertImageNode(res.data.url, imageAlt.value.trim() || file.name.replace(/\.[^.]+$/, ''))
+    }
+    imageAlt.value = ''
+    closeImagePanel()
+  } catch (error: any) {
+    imageError.value = error?.response?.data?.detail || error?.message || '图片上传失败'
+  } finally {
+    imageUploading.value = false
+  }
+}
+
+function insertImageFromUrl() {
+  const url = imageUrl.value.trim()
+  if (!url) {
+    imageError.value = '请输入图片 URL'
+    return
+  }
+  insertImageNode(url, imageAlt.value.trim())
+  imageUrl.value = ''
+  imageAlt.value = ''
+  closeImagePanel()
+}
+
+function insertImageNode(src: string, alt: string) {
+  editor.value?.chain().focus().insertContent(`<img src="${escapeHtmlAttribute(src)}" alt="${escapeHtmlAttribute(alt)}">`).run()
+}
+
+function refreshOutline(current?: Editor | null) {
   const result: HeadingItem[] = []
-  const walk = (node: any) => {
-    if (!node) return
-    if (node.type === 'heading') {
-      const text = extractText(node).trim()
+  if (!current) {
+    headings.value = result
+    return
+  }
+
+  current.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'heading') {
+      const text = node.textContent.trim()
       if (text) {
         result.push({
           id: slugify(`${result.length}-${text}`),
-          level: node.attrs?.level || 1,
+          level: node.attrs.level || 1,
+          pos,
           text,
         })
       }
     }
-    node.content?.forEach(walk)
-  }
-  walk(json)
+    return true
+  })
   headings.value = result
-  void nextTick(applyHeadingIds)
-}
-
-function extractText(node: any): string {
-  if (!node) return ''
-  if (typeof node.text === 'string') return node.text
-  return node.content?.map(extractText).join('') || ''
 }
 
 function slugify(value: string) {
   return value.toLowerCase().replace(/[^\w\u4e00-\u9fa5]+/g, '-').replace(/^-|-$/g, '')
 }
 
-function applyHeadingIds() {
-  const root = document.querySelector('.mde-prose')
-  if (!root) return
-  root.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach((heading, index) => {
-    heading.id = headings.value[index]?.id || `heading-${index}`
-  })
+function jumpToHeading(item: HeadingItem) {
+  const current = editor.value
+  if (!current) return
+
+  const target = current.view.nodeDOM(item.pos)
+  if (target instanceof HTMLElement) {
+    scrollHeadingIntoView(target)
+    return
+  }
+
+  const targetPos = Math.min(item.pos + 1, current.state.doc.content.size)
+  const coords = current.view.coordsAtPos(targetPos)
+  const top = Math.max(0, window.scrollY + coords.top - getEditorChromeOffset())
+  window.scrollTo({ top, behavior: 'smooth' })
 }
 
-function jumpToHeading(item: HeadingItem) {
-  document.getElementById(item.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+function scrollHeadingIntoView(target: HTMLElement) {
+  const top = Math.max(0, window.scrollY + target.getBoundingClientRect().top - getEditorChromeOffset())
+  window.scrollTo({ top, behavior: 'smooth' })
+}
+
+function getEditorChromeOffset() {
+  const topbar = document.querySelector<HTMLElement>('.mde-topbar')
+  const search = searchOpen.value ? document.querySelector<HTMLElement>('.mde-search') : null
+  return (topbar?.offsetHeight || 0) + (search?.offsetHeight || 0) + 28
 }
 
 function findMatch(direction: 1 | -1) {
@@ -426,7 +532,63 @@ function findMatch(direction: 1 | -1) {
         <button type="button" :class="{ active: isActive('orderedList') }" title="有序列表" aria-label="有序列表" @click="runCommand('orderedList')"><ListOrdered /></button>
         <button type="button" :class="{ active: isActive('blockquote') }" title="引用" aria-label="引用" @click="runCommand('blockquote')"><Quote /></button>
         <button type="button" :class="{ active: isActive('link') }" title="链接" aria-label="链接" @click="runCommand('link')"><LinkIcon /></button>
-        <button type="button" title="图片" aria-label="插入图片" @click="runCommand('image')"><ImageIcon /></button>
+        <div class="mde-image-tool">
+          <button type="button" :class="{ active: imagePanelOpen }" title="图片" aria-label="插入图片" @click="runCommand('image')"><ImageIcon /></button>
+          <div v-if="imagePanelOpen" class="mde-image-panel" @keydown.esc.prevent="closeImagePanel">
+            <div class="mde-image-panel__header">
+              <strong>插入图片</strong>
+              <button type="button" title="关闭" aria-label="关闭图片面板" @click="closeImagePanel"><X /></button>
+            </div>
+            <div class="mde-image-tabs" role="tablist" aria-label="图片来源">
+              <button type="button" :class="{ active: imagePanelMode === 'upload' }" @click="imagePanelMode = 'upload'">本地图片</button>
+              <button type="button" :class="{ active: imagePanelMode === 'url' }" @click="imagePanelMode = 'url'">图片 URL</button>
+            </div>
+
+            <label class="mde-image-field">
+              <span>Alt 文本</span>
+              <input v-model="imageAlt" type="text" placeholder="用于无障碍和图片说明" />
+            </label>
+
+            <div v-if="imagePanelMode === 'upload'" class="mde-image-upload">
+              <input ref="fileInputRef" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden @change="onImageFileChange" />
+              <div
+                :class="['mde-image-dropzone', { dragging: imageDragging }]"
+                @dragenter.prevent="imageDragging = true"
+                @dragover.prevent="imageDragging = true"
+                @dragleave.prevent="imageDragging = false"
+                @drop.prevent="onImageDrop"
+              >
+                <UploadCloud />
+                <strong>拖拽图片到这里</strong>
+                <span>支持 JPG / PNG / GIF / WEBP，也可以直接粘贴截图</span>
+              </div>
+              <button type="button" class="mde-image-primary" :disabled="imageUploading" @click="chooseImageFile">
+                <LoaderCircle v-if="imageUploading" class="spin" />
+                <FolderOpen v-else />
+                {{ imageUploading ? '上传中...' : '选择本地图片' }}
+              </button>
+            </div>
+
+            <div v-else class="mde-image-url">
+              <label class="mde-image-field">
+                <span>图片 URL</span>
+                <input
+                  id="markdown-image-url"
+                  v-model="imageUrl"
+                  type="url"
+                  placeholder="https://example.com/image.png"
+                  @keydown.enter.prevent="insertImageFromUrl"
+                />
+              </label>
+              <button type="button" class="mde-image-primary" @click="insertImageFromUrl">
+                <ImageIcon />
+                插入 URL 图片
+              </button>
+            </div>
+
+            <p v-if="imageError" class="mde-image-error">{{ imageError }}</p>
+          </div>
+        </div>
       </div>
 
       <div class="mde-side-actions">
@@ -600,6 +762,158 @@ function findMatch(direction: 1 | -1) {
   border-color: rgba(198, 122, 78, 0.36);
   background: var(--accent-light);
   color: var(--accent);
+}
+
+.mde-image-tool {
+  position: relative;
+  display: inline-flex;
+}
+
+.mde-image-panel {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  left: 50%;
+  z-index: 42;
+  display: grid;
+  width: min(360px, calc(100vw - 1.5rem));
+  gap: 0.7rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(250, 248, 245, 0.98);
+  box-shadow: 0 12px 28px rgba(61, 46, 36, 0.16);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  transform: translateX(-50%);
+}
+
+.mde-image-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.mde-image-panel__header strong {
+  font-size: 0.84rem;
+}
+
+.mde-image-panel__header button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+}
+
+.mde-image-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.2rem;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.mde-image-tabs button {
+  width: auto;
+  min-width: 0;
+  border-radius: 5px;
+  font-size: 0.76rem;
+}
+
+.mde-image-tabs button.active {
+  border-color: rgba(198, 122, 78, 0.34);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.mde-image-field {
+  display: grid;
+  gap: 0.32rem;
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  text-align: left;
+}
+
+.mde-image-field input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+  padding: 0 0.6rem;
+}
+
+.mde-image-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(198, 122, 78, 0.16);
+}
+
+.mde-image-upload,
+.mde-image-url {
+  display: grid;
+  gap: 0.62rem;
+}
+
+.mde-image-dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  padding: 1rem 0.85rem;
+  border: 1px dashed var(--border-input);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.44);
+  color: var(--text-secondary);
+  text-align: center;
+  transition: border-color 0.16s, background 0.16s, color 0.16s;
+}
+
+.mde-image-dropzone.dragging {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.mde-image-dropzone svg {
+  width: 24px;
+  height: 24px;
+}
+
+.mde-image-dropzone strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.mde-image-dropzone span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.mde-image-primary {
+  width: 100% !important;
+  gap: 0.42rem;
+  border-color: rgba(198, 122, 78, 0.34) !important;
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+  font-size: 0.78rem;
+}
+
+.mde-image-primary:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.mde-image-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  text-align: left;
 }
 
 .mde-actions svg,

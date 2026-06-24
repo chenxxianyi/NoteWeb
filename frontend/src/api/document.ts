@@ -17,14 +17,20 @@ export function updateDocumentContent(id: number, content: string) {
   return request.patch(`/documents/${id}/content`, { content })
 }
 
+export function uploadDocumentAsset(id: number, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  return request.post<{ url: string }>(`/documents/${id}/assets`, form)
+}
+
 export function uploadDocument(file: File) {
   const form = new FormData()
   form.append('file', file)
   return request.post<Document>('/documents/upload', form)
 }
 
-export function deleteDocument(id: number) {
-  return request.delete(`/documents/${id}`)
+export function deleteDocument(id: number, signal?: AbortSignal) {
+  return request.delete(`/documents/${id}`, { signal })
 }
 
 export function renameDocument(id: number, title: string) {

@@ -18,6 +18,12 @@ const renameTarget = ref<{ id: number; title: string } | null>(null)
 const renameInput = ref('')
 const renameInputRef = ref<HTMLInputElement | null>(null)
 const renameLoading = ref(false)
+const deleteModalVisible = ref(false)
+const deleteTarget = ref<{ id: number; title: string } | null>(null)
+const deleteLoading = ref(false)
+const deleteError = ref('')
+const deleteOverlayRef = ref<HTMLElement | null>(null)
+const deleteRequestTimeout = 15000
 
 const filters = ['全部', 'PDF', 'Markdown', 'DOCX', 'TXT']
 
@@ -136,15 +142,56 @@ function onRenameKeydown(e: KeyboardEvent) {
   else if (e.key === 'Escape') closeRenameModal()
 }
 
-async function handleDelete(book: { id: number; title: string }) {
+function handleDelete(book: { id: number; title: string }) {
   activeMenuId.value = null
-  if (window.confirm(`确定要删除「${book.title}」吗？此操作不可撤销。`)) {
-    try {
-      await documentStore.remove(book.id)
-    } catch (e: any) {
-      console.warn('删除失败:', e?.message || e)
+  deleteTarget.value = book
+  deleteModalVisible.value = true
+  deleteLoading.value = false
+  deleteError.value = ''
+  nextTick(() => deleteOverlayRef.value?.focus())
+}
+
+async function confirmDelete() {
+  if (!deleteTarget.value || deleteLoading.value) return
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), deleteRequestTimeout)
+
+  deleteLoading.value = true
+  deleteError.value = ''
+  try {
+    await documentStore.remove(deleteTarget.value.id, controller.signal)
+    forceCloseDeleteModal()
+  } catch (e: any) {
+    console.warn('删除失败:', e?.message || e)
+    if (controller.signal.aborted) {
+      deleteError.value = '删除请求超时，请检查后端服务或数据库连接后重试。'
+    } else {
+      deleteError.value = e?.response?.data?.detail || e?.message || '删除失败，请稍后重试。'
     }
+    deleteLoading.value = false
+  } finally {
+    window.clearTimeout(timeoutId)
   }
+}
+
+function closeDeleteModal() {
+  if (deleteLoading.value) return
+  forceCloseDeleteModal()
+}
+
+function forceCloseDeleteModal() {
+  deleteModalVisible.value = false
+  deleteTarget.value = null
+  deleteLoading.value = false
+  deleteError.value = ''
+}
+
+function onDeleteKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    confirmDelete()
+  }
+  else if (e.key === 'Escape') closeDeleteModal()
 }
 
 function handleClickOutside(e: MouseEvent) {
@@ -303,6 +350,48 @@ onUnmounted(() => {
             @click="confirmRename"
           >
             {{ renameLoading ? '保存中...' : '确认' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Delete Modal -->
+  <Teleport to="body">
+    <div
+      v-if="deleteModalVisible"
+      ref="deleteOverlayRef"
+      class="document-modal-overlay"
+      tabindex="-1"
+      @click="closeDeleteModal"
+      @keydown="onDeleteKeydown"
+    >
+      <div class="document-modal document-modal--danger" role="dialog" aria-modal="true" aria-labelledby="delete-title" @click.stop>
+        <div class="document-modal__header">
+          <div class="document-modal__heading">
+            <span class="document-modal__icon document-modal__icon--danger" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="18" height="18"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </span>
+            <div>
+              <h3 id="delete-title">删除文档</h3>
+              <p>此操作不可撤销，删除后将无法从文件库恢复。</p>
+            </div>
+          </div>
+          <button class="document-modal__close" :disabled="deleteLoading" aria-label="关闭" @click="closeDeleteModal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="document-modal__body">
+          <div class="delete-summary">
+            <span class="delete-summary__label">即将删除</span>
+            <strong>{{ deleteTarget?.title || '未命名文档' }}</strong>
+          </div>
+          <p v-if="deleteError" class="document-modal__error" role="alert">{{ deleteError }}</p>
+        </div>
+        <div class="document-modal__footer">
+          <button class="document-modal__btn document-modal__btn--cancel" :disabled="deleteLoading" @click="closeDeleteModal">取消</button>
+          <button class="document-modal__btn document-modal__btn--danger" :disabled="deleteLoading" @click="confirmDelete">
+            {{ deleteLoading ? '删除中...' : '确认删除' }}
           </button>
         </div>
       </div>
@@ -515,5 +604,179 @@ onUnmounted(() => {
 @keyframes scaleIn {
   from { opacity: 0; transform: scale(0.95); }
   to   { opacity: 1; transform: scale(1); }
+}
+
+.document-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(61, 46, 36, 0.34);
+  backdrop-filter: blur(3px);
+  animation: fadeIn 0.15s ease;
+}
+
+.document-modal {
+  width: min(420px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: rgba(250, 248, 245, 0.98);
+  box-shadow: 0 16px 42px rgba(61, 46, 36, 0.18);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  animation: scaleIn 0.15s ease;
+}
+
+.document-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.05rem 1.15rem 0.85rem;
+}
+
+.document-modal__heading {
+  display: flex;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.document-modal__heading h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.document-modal__heading p {
+  margin: 0.3rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.document-modal__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.document-modal__icon--danger {
+  background: #fee2e2;
+  color: #b42318;
+}
+
+.document-modal__close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+
+.document-modal__close:hover:not(:disabled) {
+  background: var(--accent-light);
+  color: var(--text-primary);
+}
+
+.document-modal__close:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.document-modal__body {
+  padding: 0 1.15rem 1rem;
+}
+
+.delete-summary {
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(180, 35, 24, 0.16);
+  border-radius: 8px;
+  background: rgba(254, 242, 242, 0.74);
+}
+
+.delete-summary__label {
+  color: #b42318;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.delete-summary strong {
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.document-modal__error {
+  margin: 0.75rem 0 0;
+  padding: 0.62rem 0.75rem;
+  border: 1px solid rgba(180, 35, 24, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 247, 237, 0.86);
+  color: #9f1f14;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.document-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0 1.15rem 1.05rem;
+}
+
+.document-modal__btn {
+  min-height: 34px;
+  padding: 0 0.95rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.document-modal__btn:hover:not(:disabled) {
+  background: var(--accent-light);
+  color: var(--text-primary);
+}
+
+.document-modal__btn--danger {
+  border-color: #b42318;
+  background: #b42318;
+  color: #fff;
+}
+
+.document-modal__btn--danger:hover:not(:disabled) {
+  border-color: #9f1f14;
+  background: #9f1f14;
+  color: #fff;
+}
+
+.document-modal__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 </style>

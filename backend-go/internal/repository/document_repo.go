@@ -57,6 +57,11 @@ func (r *DocumentRepo) UpdateParsedContent(id uint, content string, pageCount, w
 		}).Error
 }
 
+func (r *DocumentRepo) UpdateParsedStatus(id uint, status string) error {
+	return r.db.Model(&models.Document{}).Where("id = ?", id).
+		Update("parsed_status", status).Error
+}
+
 func (r *DocumentRepo) UpdateTextContent(id uint, content string, pageCount, wordCount int, fileSize int64) error {
 	return r.db.Model(&models.Document{}).Where("id = ?", id).
 		Updates(map[string]interface{}{

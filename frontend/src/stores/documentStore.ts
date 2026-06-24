@@ -70,8 +70,8 @@ export const useDocumentStore = defineStore('document', () => {
     return res.data
   }
 
-  async function remove(id: number) {
-    await documentApi.deleteDocument(id)
+  async function remove(id: number, signal?: AbortSignal) {
+    await documentApi.deleteDocument(id, signal)
     documents.value = documents.value.filter((d) => d.id !== id)
   }
 

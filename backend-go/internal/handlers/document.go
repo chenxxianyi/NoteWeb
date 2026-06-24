@@ -122,6 +122,37 @@ func (h *DocumentHandler) GetFile(c *gin.Context) {
 	c.Data(http.StatusOK, mimeType, data)
 }
 
+func (h *DocumentHandler) UploadAsset(c *gin.Context) {
+	userID := c.GetUint("userID")
+	docID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "请选择图片"})
+		return
+	}
+	defer file.Close()
+
+	url, err := h.svc.UploadAsset(uint(docID), userID, header.Filename, file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"url": url})
+}
+
+func (h *DocumentHandler) GetAsset(c *gin.Context) {
+	docID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	assetName := c.Param("name")
+
+	data, mimeType, err := h.svc.GetAssetData(uint(docID), assetName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"detail": err.Error()})
+		return
+	}
+	c.Data(http.StatusOK, mimeType, data)
+}
+
 func (h *DocumentHandler) UpdateContent(c *gin.Context) {
 	userID := c.GetUint("userID")
 	docID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
