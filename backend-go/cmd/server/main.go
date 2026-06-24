@@ -77,6 +77,7 @@ func main() {
 		docs.GET("/:id/file", docH.GetFile)
 		docs.POST("/upload", docH.Upload)
 		docs.PATCH("/:id", docH.Rename)
+		docs.PATCH("/:id/content", docH.UpdateContent)
 		docs.PATCH("/:id/read-progress", docH.UpdateReadProgress)
 		docs.DELETE("/:id", docH.Delete)
 

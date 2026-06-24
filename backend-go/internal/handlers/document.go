@@ -122,6 +122,25 @@ func (h *DocumentHandler) GetFile(c *gin.Context) {
 	c.Data(http.StatusOK, mimeType, data)
 }
 
+func (h *DocumentHandler) UpdateContent(c *gin.Context) {
+	userID := c.GetUint("userID")
+	docID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": "参数错误"})
+		return
+	}
+
+	if err := h.svc.UpdateTextContent(uint(docID), userID, req.Content); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"detail": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"detail": "ok"})
+}
+
 func (h *DocumentHandler) UpdateReadProgress(c *gin.Context) {
 	userID := c.GetUint("userID")
 	docID, _ := strconv.ParseUint(c.Param("id"), 10, 32)

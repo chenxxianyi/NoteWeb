@@ -13,6 +13,10 @@ export function getDocumentContent(id: number) {
   return request.get<{ content: string }>(`/documents/${id}/content`)
 }
 
+export function updateDocumentContent(id: number, content: string) {
+  return request.patch(`/documents/${id}/content`, { content })
+}
+
 export function uploadDocument(file: File) {
   const form = new FormData()
   form.append('file', file)

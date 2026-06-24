@@ -233,6 +233,30 @@ func (s *DocumentService) GetFileData(docID, userID uint) ([]byte, string, error
 	return data, doc.MimeType, nil
 }
 
+func (s *DocumentService) UpdateTextContent(docID, userID uint, content string) error {
+	doc, err := s.repo.GetByID(docID)
+	if err != nil || doc.UserID != userID {
+		return errors.New("文档不存在")
+	}
+	if !shouldParseAsText(doc.FileType) {
+		return errors.New("当前文档不支持文本编辑")
+	}
+
+	data := []byte(content)
+	if doc.StoragePath != "" {
+		savePath := filepath.Join(s.uploadDir, doc.StoragePath)
+		if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
+			return fmt.Errorf("文件保存失败: %w", err)
+		}
+		if err := os.WriteFile(savePath, data, 0644); err != nil {
+			return fmt.Errorf("文件保存失败: %w", err)
+		}
+	}
+
+	pageCount, wordCount := textStats(content)
+	return s.repo.UpdateTextContent(docID, content, pageCount, wordCount, int64(len(data)))
+}
+
 // UpdateReadProgress sets the document's read progress (0–100).
 func (s *DocumentService) UpdateReadProgress(docID, userID uint, progress float64) error {
 	doc, err := s.repo.GetByID(docID)

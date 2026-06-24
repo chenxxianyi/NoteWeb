@@ -3,7 +3,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDocumentStore } from '../stores/documentStore'
 import { useAnnotationStore } from '../stores/annotationStore'
-import { marked } from 'marked'
 import {
   ArrowLeft,
   ArrowRight,
@@ -36,6 +35,7 @@ import {
 } from 'lucide-vue-next'
 import PDFViewer from '../components/PDFViewer.vue'
 import AnnotationToolbar from '../components/AnnotationToolbar.vue'
+import MarkdownDocumentEditor from '../components/MarkdownDocumentEditor.vue'
 import type { Annotation } from '../types/annotation'
 import type { PDFActiveTool, ShapeType, TextDrawing } from '../components/pdfDrawingTypes'
 
@@ -53,10 +53,6 @@ const topbarHidden = ref(false)
 const showAnnoTab = ref(true)
 const loading = ref(true)
 let lastScroll = 0
-
-// Annotation toolbar
-const annoToolbar = ref<InstanceType<typeof AnnotationToolbar> | null>(null)
-const docBodyRef = ref<HTMLElement | null>(null)
 
 // PDF drawing state
 const pdfRef = ref<InstanceType<typeof PDFViewer> | null>(null)
@@ -423,60 +419,11 @@ const doc = computed(() => documentStore.currentDocument)
 const content = computed(() => documentStore.documentContent)
 const annotations = computed(() => annotationStore.annotations)
 
-/** Rendered markdown HTML or escaped plain text, depending on file type */
-const renderedContent = computed(() => {
-  const raw = content.value
-  if (!raw) return ''
-  const ft = doc.value?.file_type
-  if (ft === 'md') {
-    return marked.parse(raw, { async: false }) as string
-  }
-  // TXT / DOCX: escape HTML to show as plain text
-  return raw
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-})
-
-/** Content with annotation highlights applied */
-const highlightedContent = computed(() => {
-  let html = renderedContent.value
-  if (!html) return ''
-  const anns = annotations.value
-  if (anns.length === 0) return html
-
-  anns.forEach((a) => {
-    if (!a.selected_text) return
-    const escaped = a.selected_text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-    const regexStr = escaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regex = new RegExp(regexStr, 'g')
-    html = html.replace(regex, `<mark data-anno-id="${a.id}" style="background:${a.color || '#FFD700'};cursor:pointer;border-radius:2px;padding:0 1px;" title="${escaped.replace(/"/g, '&quot;')}">${escaped}</mark>`)
-  })
-  return html
-})
-
 function toggleLeft() { panelLeftOpen.value = !panelLeftOpen.value }
 function toggleRight() { panelRightOpen.value = !panelRightOpen.value }
 function closePanels() { panelLeftOpen.value = false; panelRightOpen.value = false }
 
 // ── Annotation: selection & toolbar ──
-
-function onContentMouseUp(e: MouseEvent) {
-  const sel = window.getSelection()
-  if (!sel || sel.isCollapsed || !sel.toString().trim()) {
-    annoToolbar.value?.hide()
-    return
-  }
-  const range = sel.getRangeAt(0)
-  if (!docBodyRef.value?.contains(range.commonAncestorContainer)) {
-    annoToolbar.value?.hide()
-    return
-  }
-  annoToolbar.value?.show(e.clientX, e.clientY)
-}
 
 async function onAnnoHighlight() {
   const sel = window.getSelection()
@@ -530,8 +477,7 @@ async function deleteAnnotation(id: number) {
 }
 
 function scrollToAnnotation(text: string) {
-  if (!docBodyRef.value) return
-  const marks = docBodyRef.value.querySelectorAll('mark')
+  const marks = document.querySelectorAll('mark')
   marks.forEach((m) => {
     if (m.textContent === text) {
       m.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -677,7 +623,7 @@ onUnmounted(() => {
     <div :class="['panel-overlay', { show: panelLeftOpen || panelRightOpen }]" @click="closePanels"></div>
 
     <!-- Floating Top Bar -->
-    <div :class="['reader-topbar', { hidden: topbarHidden, 'eraser-active': pdfActiveTool === 'eraser' }]">
+    <div v-if="doc?.file_type === 'pdf'" :class="['reader-topbar', { hidden: topbarHidden, 'eraser-active': pdfActiveTool === 'eraser' }]">
       <button class="tb-btn" title="返回" aria-label="返回" @click="router.push('/documents')">
         <ArrowLeft />
       </button>
@@ -980,7 +926,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Left Panel: TOC (placeholder — real TOC needs parsed content) -->
-    <div :class="['panel-left', { open: panelLeftOpen }]">
+    <div v-if="doc?.file_type === 'pdf'" :class="['panel-left', { open: panelLeftOpen }]">
       <div class="panel__header">
         <h3>目录</h3>
         <button @click="panelLeftOpen = false">✕</button>
@@ -992,7 +938,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Right Panel: Annotations + AI -->
-    <div :class="['panel-right', { open: panelRightOpen }]">
+    <div v-if="doc?.file_type === 'pdf'" :class="['panel-right', { open: panelRightOpen }]">
       <div class="panel__header">
         <h3>批注与 AI</h3>
         <button @click="panelRightOpen = false">✕</button>
@@ -1042,10 +988,10 @@ onUnmounted(() => {
     </div>
 
     <!-- Right page edge decoration -->
-    <div class="page-edge"></div>
+    <div v-if="doc?.file_type === 'pdf'" class="page-edge"></div>
 
     <!-- Annotation Toolbar -->
-    <AnnotationToolbar ref="annoToolbar" @highlight="onAnnoHighlight" @note="onAnnoNote" />
+    <AnnotationToolbar v-if="doc?.file_type === 'pdf'" @highlight="onAnnoHighlight" @note="onAnnoNote" />
 
     <!-- Reading Content -->
     <div v-if="loading" class="reader-content">
@@ -1074,20 +1020,14 @@ onUnmounted(() => {
       />
     </div>
 
-    <div v-else class="reader-content">
-      <div class="reader-inner">
-        <h1 class="doc-title">{{ doc?.title || '未命名文档' }}</h1>
-        <div class="doc-meta">
-          {{ doc?.file_type?.toUpperCase() || '' }}
-          {{ doc?.read_progress ? `· 已读至${doc.read_progress}%` : '' }}
-        </div>
-
-        <div v-if="highlightedContent" ref="docBodyRef" class="doc-body" v-html="highlightedContent" @mouseup="onContentMouseUp"></div>
-        <div v-else class="doc-body">
-          <p style="color:var(--text-muted)">文档内容暂不可用</p>
-        </div>
-      </div>
-    </div>
+    <MarkdownDocumentEditor
+      v-else
+      :document-id="capturedDocId"
+      :title="doc?.title || '未命名文档'"
+      :content="content"
+      :file-type="doc?.file_type || 'md'"
+      @back="router.push('/documents')"
+    />
   </div>
 </template>
 

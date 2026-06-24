@@ -50,6 +50,20 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
+  async function updateContent(id: number, content: string) {
+    error.value = null
+    try {
+      await documentApi.updateDocumentContent(id, content)
+      documentContent.value = content
+      if (currentDocument.value?.id === id) {
+        currentDocument.value.updated_at = new Date().toISOString()
+      }
+    } catch (e: any) {
+      error.value = e?.response?.data?.detail || e.message || '保存文档内容失败'
+      throw e
+    }
+  }
+
   async function upload(file: File) {
     const res = await documentApi.uploadDocument(file)
     documents.value.unshift(res.data)
@@ -94,5 +108,5 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
-  return { documents, currentDocument, documentContent, loading, error, fetchDocuments, fetchDocument, fetchDocumentContent, upload, remove, rename, markAsRead, updateProgress }
+  return { documents, currentDocument, documentContent, loading, error, fetchDocuments, fetchDocument, fetchDocumentContent, updateContent, upload, remove, rename, markAsRead, updateProgress }
 })
