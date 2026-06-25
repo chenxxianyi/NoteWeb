@@ -39,3 +39,11 @@ func (r *UserRepo) UpdateStorage(userID uint, delta int64) error {
 	return r.db.Model(&models.User{}).Where("id = ?", userID).
 		Update("storage_used", gorm.Expr("storage_used + ?", delta)).Error
 }
+
+func (r *UserRepo) Update(user *models.User) error {
+	return r.db.Save(user).Error
+}
+
+func (r *UserRepo) Delete(userID uint) error {
+	return r.db.Delete(&models.User{}, userID).Error
+}

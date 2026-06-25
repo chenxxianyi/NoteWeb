@@ -111,3 +111,102 @@ func (s *AuthService) generateToken(userID uint) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(s.secretKey))
 }
+
+// ChangePassword changes the user's password after verifying the old password
+func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword string) error {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+
+	// Verify old password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
+		return errors.New("旧密码错误")
+	}
+
+	// Validate new password
+	if len(newPassword) < 6 {
+		return errors.New("新密码长度至少6位")
+	}
+
+	// Generate new password hash
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user.PasswordHash = string(hash)
+	return s.userRepo.Update(user)
+}
+
+// UpdateProfile updates user's username and/or email
+func (s *AuthService) UpdateProfile(userID uint, username, email string) (*UserResponse, error) {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, errors.New("用户不存在")
+	}
+
+	// Check if username is taken by another user
+	if username != "" && username != user.Username {
+		if existing, _ := s.userRepo.GetByUsername(username); existing != nil {
+			return nil, errors.New("该用户名已被使用")
+		}
+		user.Username = username
+	}
+
+	// Check if email is taken by another user
+	if email != "" && email != user.Email {
+		if existing, _ := s.userRepo.GetByEmail(email); existing != nil {
+			return nil, errors.New("该邮箱已被注册")
+		}
+		user.Email = email
+	}
+
+	if err := s.userRepo.Update(user); err != nil {
+		return nil, err
+	}
+
+	resp := toUserResponse(user)
+	return &resp, nil
+}
+
+// UpdateAvatar updates the user's avatar URL
+func (s *AuthService) UpdateAvatar(userID uint, avatarURL string) (*UserResponse, error) {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, errors.New("用户不存在")
+	}
+
+	user.AvatarURL = avatarURL
+	if err := s.userRepo.Update(user); err != nil {
+		return nil, err
+	}
+
+	resp := toUserResponse(user)
+	return &resp, nil
+}
+
+// DeleteUser deletes a user and all associated data
+func (s *AuthService) DeleteUser(userID uint) error {
+	// The database should handle cascade deletion
+	// For safety, we verify the user exists first
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+	return s.userRepo.Delete(user.ID)
+}
+
+// VerifyPassword verifies the user's password
+func (s *AuthService) VerifyPassword(userID uint, password string) error {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return errors.New("密码错误")
+	}
+
+	return nil
+}

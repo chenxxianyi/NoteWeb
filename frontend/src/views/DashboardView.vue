@@ -14,7 +14,7 @@ const noteStore = useNoteStore()
 const annotationStore = useAnnotationStore()
 
 const loading = ref(true)
-const initialLoading = computed(() => documentStore.loading || noteStore.loading)
+const initialLoading = computed(() => documentStore.loading || noteStore.loading || annotationStore.loading)
 
 const now = new Date()
 const hour = now.getHours()
@@ -41,11 +41,14 @@ const readingList = computed(() =>
 )
 
 const recentActivity = computed(() => {
-  const items: Array<{ type: string; title?: string; text?: string; doc: string; page?: string; info?: string }> = []
+  const items: Array<{ type: string; id?: number; documentId?: number; title?: string; text?: string; doc: string; page?: string; info?: string; createdAt: string }> = []
 
   annotationStore.annotations.slice(0, 3).forEach((a) => {
     items.push({
       type: 'highlight',
+      id: a.id,
+      documentId: a.document_id,
+      createdAt: a.created_at,
       text: `"${a.selected_text?.substring(0, 40)}…"`,
       doc: a.document_id ? `文档 #${a.document_id}` : '—',
       page: `第${a.page}页`,
@@ -55,6 +58,8 @@ const recentActivity = computed(() => {
   noteStore.notes.slice(0, 3).forEach((n) => {
     items.push({
       type: 'note',
+      id: n.id,
+      createdAt: n.updated_at || n.created_at,
       text: n.content?.substring(0, 40) ? `"${n.content.substring(0, 40)}…"` : undefined,
       title: n.title,
       doc: n.document_title || '—',
@@ -62,17 +67,34 @@ const recentActivity = computed(() => {
     })
   })
 
-  return items.slice(0, 6)
+  return items
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 6)
 })
 
-onMounted(() => {
-  const requests = [
-    documentStore.fetchDocuments(),
-    noteStore.fetchNotes(),
-  ]
+function openRecentActivity(item: { type: string; id?: number; documentId?: number }) {
+  if (item.type === 'highlight' && item.documentId) {
+    router.push(`/reader/${item.documentId}`)
+    return
+  }
 
-  loading.value = false
-  void Promise.allSettled(requests)
+  if (item.type === 'note' && item.id) {
+    router.push({ path: '/notes', query: { noteId: String(item.id) } })
+  }
+}
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    const notesRequest = noteStore.fetchNotes()
+    await documentStore.fetchDocuments()
+    const annotationRequest = annotationStore.fetchAnnotationsForDocuments(
+      documentStore.documents.map((document) => document.id)
+    )
+    await Promise.allSettled([notesRequest, annotationRequest])
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 
@@ -156,7 +178,16 @@ onMounted(() => {
               <h2>最新动态</h2>
             </div>
             <div class="tl-list">
-              <div v-for="(item, idx) in recentActivity" :key="idx" class="tl-item">
+              <div
+                v-for="(item, idx) in recentActivity"
+                :key="`${item.type}-${item.id || idx}-${item.createdAt}`"
+                class="tl-item"
+                role="button"
+                tabindex="0"
+                @click="openRecentActivity(item)"
+                @keydown.enter.prevent="openRecentActivity(item)"
+                @keydown.space.prevent="openRecentActivity(item)"
+              >
                 <div class="tl-item__icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="17" height="17">
                     <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" v-if="item.type==='highlight'"/>

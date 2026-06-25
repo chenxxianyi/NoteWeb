@@ -82,11 +82,19 @@ export const useDocumentStore = defineStore('document', () => {
   }
 
   async function markAsRead(id: number) {
+    const doc = documents.value.find((d) => d.id === id)
+    const current = currentDocument.value?.id === id ? currentDocument.value : null
+    // 已经有进度（≥1%）则不再重复标记
+    if ((doc?.read_progress || current?.read_progress || 0) >= 1) return
+
     try {
       await documentApi.markDocumentAsRead(id)
-      const doc = documents.value.find((d) => d.id === id)
-      if (doc && doc.read_progress === 0) {
-        doc.read_progress = 1.0
+      // 使用 1 作为"已打开但未读完"的标记（百分比范围 0-100）
+      if (doc && doc.read_progress < 1) {
+        doc.read_progress = 1
+      }
+      if (current && current.read_progress < 1) {
+        current.read_progress = 1
       }
     } catch {
       // non-critical — silently fail
@@ -101,6 +109,9 @@ export const useDocumentStore = defineStore('document', () => {
       const doc = documents.value.find((d) => d.id === id)
       if (doc) {
         doc.read_progress = p
+      }
+      if (currentDocument.value?.id === id) {
+        currentDocument.value.read_progress = p
       }
       console.log(`[Store] ✅ Progress saved: doc=${id} progress=${p}%`)
     } catch (e: any) {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
+import { useRoute } from 'vue-router'
 import { useNoteStore } from '../stores/noteStore'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import { Node } from '@tiptap/core'
@@ -105,6 +106,7 @@ const SimpleTable = Node.create({
 })
 
 const noteStore = useNoteStore()
+const route = useRoute()
 
 const activeNoteId = ref<number | null>(null)
 const searchQuery = ref('')
@@ -272,7 +274,8 @@ const filteredNotes = computed(() => {
 
 const currentNote = computed(() => {
   if (!activeNoteId.value) return filteredNotes.value[0] || null
-  return noteStore.notes.find((note) => note.id === activeNoteId.value) || null
+  return noteStore.notes.find((note) => note.id === activeNoteId.value) ||
+    (noteStore.currentNote?.id === activeNoteId.value ? noteStore.currentNote : null)
 })
 
 watch(currentNote, (note) => {
@@ -287,6 +290,24 @@ function selectNote(id: number) {
   activeNoteId.value = id
   void noteStore.fetchNote(id)
 }
+
+function getRouteNoteId() {
+  const value = Array.isArray(route.query.noteId) ? route.query.noteId[0] : route.query.noteId
+  const id = Number(value)
+  return Number.isFinite(id) && id > 0 ? id : null
+}
+
+function selectRouteNote() {
+  const noteId = getRouteNoteId()
+  if (!noteId) return false
+  activeTag.value = '全部'
+  selectNote(noteId)
+  return true
+}
+
+watch(() => route.query.noteId, () => {
+  selectRouteNote()
+})
 
 async function createNote() {
   const note = await noteStore.create({
@@ -652,7 +673,7 @@ onMounted(async () => {
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   document.addEventListener('keydown', handleDocumentKeydown)
   await noteStore.fetchNotes()
-  if (noteStore.notes.length > 0 && !activeNoteId.value) {
+  if (!selectRouteNote() && noteStore.notes.length > 0 && !activeNoteId.value) {
     activeNoteId.value = noteStore.notes[0].id
   }
 })

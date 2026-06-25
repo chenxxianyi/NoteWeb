@@ -38,7 +38,7 @@ export function renameDocument(id: number, title: string) {
 }
 
 export function markDocumentAsRead(id: number) {
-  return request.patch(`/documents/${id}/read-progress`)
+  return updateReadProgress(id, 1)
 }
 
 export function updateReadProgress(id: number, progress: number) {

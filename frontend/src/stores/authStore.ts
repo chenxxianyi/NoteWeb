@@ -51,5 +51,72 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('token')
   }
 
-  return { user, token, loading, login, register, fetchUser, logout }
+  async function changePassword(oldPassword: string, newPassword: string) {
+    loading.value = true
+    try {
+      await authApi.changePassword({
+        old_password: oldPassword,
+        new_password: newPassword,
+      })
+    } catch (e: any) {
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function updateProfile(username?: string, email?: string) {
+    loading.value = true
+    try {
+      const res = await authApi.updateProfile({ username, email })
+      if (res.data) {
+        user.value = res.data
+      }
+    } catch (e: any) {
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function uploadAvatar(file: File) {
+    loading.value = true
+    try {
+      const res = await authApi.uploadAvatar(file)
+      if (res.data.user) {
+        user.value = res.data.user
+      }
+      return res.data.url
+    } catch (e: any) {
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function deleteAccount(password: string) {
+    loading.value = true
+    try {
+      await authApi.deleteAccount({ password })
+      logout()
+    } catch (e: any) {
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  return {
+    user,
+    token,
+    loading,
+    login,
+    register,
+    fetchUser,
+    logout,
+    changePassword,
+    updateProfile,
+    uploadAvatar,
+    deleteAccount,
+  }
 })

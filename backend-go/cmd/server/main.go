@@ -24,7 +24,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("数据库连接失败: %v", err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.Document{}, &models.Annotation{}, &models.Note{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.Document{}, &models.Annotation{}, &models.Note{}, &models.UserSettings{}); err != nil {
 		log.Fatalf("数据库迁移失败: %v", err)
 	}
 	if err := db.Migrator().AlterColumn(&models.Document{}, "MimeType"); err != nil {
@@ -33,23 +33,28 @@ func main() {
 
 	// Repositories
 	userRepo := repository.NewUserRepo(db)
+	userSettingsRepo := repository.NewUserSettingsRepo(db)
 	docRepo := repository.NewDocumentRepo(db)
 	annRepo := repository.NewAnnotationRepo(db)
 	noteRepo := repository.NewNoteRepo(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, cfg.SecretKey, cfg.AccessTokenExpireMinutes)
+	userSettingsSvc := service.NewUserSettingsService(userSettingsRepo)
 	docSvc := service.NewDocumentService(docRepo, userRepo, "./uploads")
 	annSvc := service.NewAnnotationService(annRepo)
 	noteSvc := service.NewNoteService(noteRepo, docRepo)
 	aiSvc := service.NewAIService()
+	dashboardSvc := service.NewDashboardService(docRepo, annRepo, noteRepo)
 
 	// Handlers
 	authH := handlers.NewAuthHandler(authSvc)
+	userSettingsH := handlers.NewUserSettingsHandler(userSettingsSvc)
 	docH := handlers.NewDocumentHandler(docSvc)
 	annH := handlers.NewAnnotationHandler(annSvc)
 	noteH := handlers.NewNoteHandler(noteSvc)
 	aiH := handlers.NewAIHandler(aiSvc)
+	dashboardH := handlers.NewDashboardHandler(dashboardSvc)
 
 	// Router
 	r := gin.Default()
@@ -59,6 +64,7 @@ func main() {
 	auth := api.Group("/auth")
 	auth.POST("/register", authH.Register)
 	auth.POST("/login", authH.Login)
+	auth.GET("/avatar/:filename", authH.GetAvatar)
 
 	// AI (public mock)
 	ai := api.Group("/ai")
@@ -73,6 +79,15 @@ func main() {
 	protected.Use(middleware.AuthMiddleware(cfg.SecretKey))
 	{
 		protected.GET("/auth/me", authH.Me)
+		protected.PATCH("/auth/profile", authH.UpdateProfile)
+		protected.POST("/auth/change-password", authH.ChangePassword)
+		protected.POST("/auth/avatar", authH.UploadAvatar)
+		protected.DELETE("/auth/account", authH.DeleteAccount)
+
+		protected.GET("/settings", userSettingsH.Get)
+		protected.PATCH("/settings", userSettingsH.Update)
+
+		protected.GET("/dashboard/summary", dashboardH.GetSummary)
 
 		docs := protected.Group("/documents")
 		docs.GET("", docH.List)

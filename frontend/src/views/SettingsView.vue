@@ -1,25 +1,176 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import { useAuthStore } from '../stores/authStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { useDocumentStore } from '../stores/documentStore'
 
+const router = useRouter()
 const authStore = useAuthStore()
+const settingsStore = useSettingsStore()
+const documentStore = useDocumentStore()
+const { setTheme, setFont } = settingsStore
+
 const username = computed(() => authStore.user?.username || '用户')
 const email = computed(() => authStore.user?.email || '—')
-const readingMode = ref(true)
+const readingMode = computed(() => settingsStore.readingMode)
+
+// Modal states
+const showPasswordModal = ref(false)
+const showDeleteModal = ref(false)
+const showProfileModal = ref(false)
+const oldPassword = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const deletePassword = ref('')
+const editUsername = ref('')
+const editEmail = ref('')
+const avatarFile = ref<File | null>(null)
+const avatarPreview = ref<string>('')
 
 // AI settings — persisted in localStorage
 const aiProvider = ref(localStorage.getItem('ai_provider') || 'Mock API')
 const aiKey = ref(localStorage.getItem('ai_key') || '')
 const aiBaseUrl = ref(localStorage.getItem('ai_base_url') || '')
 const aiSaved = ref(false)
+const showNotification = ref(false)
+const notificationMessage = ref('')
+const loadingAction = ref(false)
+
+function showNotificationToast(msg: string) {
+  notificationMessage.value = msg
+  showNotification.value = true
+  setTimeout(() => {
+    showNotification.value = false
+  }, 2000)
+}
 
 function saveAISettings() {
   localStorage.setItem('ai_provider', aiProvider.value)
   localStorage.setItem('ai_key', aiKey.value)
   localStorage.setItem('ai_base_url', aiBaseUrl.value)
   aiSaved.value = true
+  showNotificationToast('AI 配置已保存')
   setTimeout(() => { aiSaved.value = false }, 2000)
+}
+
+function handleReadingModeChange() {
+  settingsStore.setReadingMode(!readingMode.value)
+  showNotificationToast(readingMode.value ? '阅读模式已关闭' : '阅读模式已开启')
+}
+
+// Password change
+function openPasswordModal() {
+  oldPassword.value = ''
+  newPassword.value = ''
+  confirmPassword.value = ''
+  showPasswordModal.value = true
+}
+
+async function changePassword() {
+  if (!oldPassword.value || !newPassword.value) {
+    showNotificationToast('请填写所有密码字段')
+    return
+  }
+  if (newPassword.value !== confirmPassword.value) {
+    showNotificationToast('新密码两次输入不一致')
+    return
+  }
+  if (newPassword.value.length < 6) {
+    showNotificationToast('新密码长度至少6位')
+    return
+  }
+
+  loadingAction.value = true
+  try {
+    await authStore.changePassword(oldPassword.value, newPassword.value)
+    showPasswordModal.value = false
+    showNotificationToast('密码修改成功')
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || e?.message || '密码修改失败'
+    showNotificationToast(msg)
+  } finally {
+    loadingAction.value = false
+  }
+}
+
+// Avatar upload
+function handleAvatarSelect(event: Event) {
+  const target = event.target as HTMLInputElement
+  if (!target.files?.length) return
+  avatarFile.value = target.files[0]
+  avatarPreview.value = URL.createObjectURL(avatarFile.value)
+}
+
+async function uploadAvatar() {
+  if (!avatarFile.value) {
+    showNotificationToast('请先选择头像图片')
+    return
+  }
+
+  loadingAction.value = true
+  try {
+    await authStore.uploadAvatar(avatarFile.value)
+    avatarFile.value = null
+    avatarPreview.value = ''
+    showNotificationToast('头像上传成功')
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || e?.message || '头像上传失败'
+    showNotificationToast(msg)
+  } finally {
+    loadingAction.value = false
+  }
+}
+
+// Profile edit
+function openProfileModal() {
+  editUsername.value = authStore.user?.username || ''
+  editEmail.value = authStore.user?.email || ''
+  showProfileModal.value = true
+}
+
+async function updateProfile() {
+  loadingAction.value = true
+  try {
+    await authStore.updateProfile(editUsername.value, editEmail.value)
+    showProfileModal.value = false
+    showNotificationToast('资料更新成功')
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || e?.message || '资料更新失败'
+    showNotificationToast(msg)
+  } finally {
+    loadingAction.value = false
+  }
+}
+
+// Account deletion
+function openDeleteModal() {
+  deletePassword.value = ''
+  showDeleteModal.value = true
+}
+
+async function deleteAccount() {
+  if (!deletePassword.value) {
+    showNotificationToast('请输入密码确认删除')
+    return
+  }
+
+  const confirmed = window.confirm('确定要删除账号吗？此操作不可撤销，所有数据将被永久删除。')
+  if (!confirmed) return
+
+  loadingAction.value = true
+  try {
+    await authStore.deleteAccount(deletePassword.value)
+    showDeleteModal.value = false
+    showNotificationToast('账号已删除')
+    router.push('/login')
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || e?.message || '删除失败'
+    showNotificationToast(msg)
+  } finally {
+    loadingAction.value = false
+  }
 }
 
 const storageUsed = computed(() => {
@@ -41,11 +192,122 @@ const storagePercent = computed(() => {
   const limit = authStore.user?.storage_limit || 1
   return Math.min(100, Math.round((used / limit) * 100))
 })
+
+// Get real document count from documentStore
+const documentCount = computed(() => documentStore.documents.length)
+
+// Export data function
+async function exportData() {
+  // Ensure documents are loaded
+  if (documentStore.documents.length === 0) {
+    await documentStore.fetchDocuments()
+  }
+
+  const exportPayload = {
+    exportDate: new Date().toISOString(),
+    version: '1.0',
+    user: {
+      username: authStore.user?.username,
+      email: authStore.user?.email,
+      storageUsed: authStore.user?.storage_used,
+      storageLimit: authStore.user?.storage_limit,
+    },
+    settings: {
+      theme: settingsStore.theme,
+      font: settingsStore.font,
+      readingMode: settingsStore.readingMode,
+    },
+    statistics: {
+      documentCount: documentStore.documents.length,
+    },
+    // Note: We don't export actual document content, AI keys, or sensitive data
+    // Users should backup their documents separately
+  }
+
+  const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const dateStr = new Date().toISOString().split('T')[0]
+  a.href = url
+  a.download = `noteweb-export-${dateStr}.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+
+  showNotificationToast('数据已导出')
+}
+
+onMounted(async () => {
+  // Ensure documents are loaded for document count
+  if (documentStore.documents.length === 0) {
+    await documentStore.fetchDocuments()
+  }
+  // Fetch settings from backend
+  await settingsStore.fetchSettings()
+})
 </script>
 
 <template>
   <AppLayout>
     <div class="settings-page">
+      <!-- Notification Toast -->
+      <div v-if="showNotification" class="notification-toast">
+        {{ notificationMessage }}
+      </div>
+
+      <!-- Password Modal -->
+      <div v-if="showPasswordModal" class="modal-overlay" @click.self="showPasswordModal = false">
+        <div class="modal">
+          <h3 class="modal__title">修改密码</h3>
+          <div class="modal__content">
+            <input v-model="oldPassword" class="input modal__input" type="password" placeholder="旧密码" />
+            <input v-model="newPassword" class="input modal__input" type="password" placeholder="新密码（至少6位）" />
+            <input v-model="confirmPassword" class="input modal__input" type="password" placeholder="确认新密码" />
+          </div>
+          <div class="modal__actions">
+            <button class="btn" @click="showPasswordModal = false">取消</button>
+            <button class="btn btn--primary" :disabled="loadingAction" @click="changePassword">
+              {{ loadingAction ? '处理中...' : '确认修改' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profile Modal -->
+      <div v-if="showProfileModal" class="modal-overlay" @click.self="showProfileModal = false">
+        <div class="modal">
+          <h3 class="modal__title">修改资料</h3>
+          <div class="modal__content">
+            <input v-model="editUsername" class="input modal__input" type="text" placeholder="用户名" />
+            <input v-model="editEmail" class="input modal__input" type="email" placeholder="邮箱" />
+          </div>
+          <div class="modal__actions">
+            <button class="btn" @click="showProfileModal = false">取消</button>
+            <button class="btn btn--primary" :disabled="loadingAction" @click="updateProfile">
+              {{ loadingAction ? '处理中...' : '保存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete Account Modal -->
+      <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
+        <div class="modal">
+          <h3 class="modal__title" style="color:#DC2626;">删除账号</h3>
+          <div class="modal__content">
+            <p style="color:#DC2626;margin-bottom:1rem;">此操作不可撤销，所有数据将被永久删除！</p>
+            <input v-model="deletePassword" class="input modal__input" type="password" placeholder="请输入密码确认" />
+          </div>
+          <div class="modal__actions">
+            <button class="btn" @click="showDeleteModal = false">取消</button>
+            <button class="btn" style="background:#DC2626;color:#fff;border-color:#DC2626;" :disabled="loadingAction" @click="deleteAccount">
+              {{ loadingAction ? '删除中...' : '确认删除' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="main-inner">
         <h1 class="page-title">设置</h1>
 
@@ -54,14 +316,18 @@ const storagePercent = computed(() => {
           <h2 class="section__title">用户资料</h2>
           <div class="section__card">
             <div class="setting-item">
-              <div class="avatar-upload">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <div class="avatar-upload" @click="($refs.avatarInput as HTMLInputElement).click()">
+                <img v-if="authStore.user?.avatar" :src="authStore.user.avatar" class="avatar-img" />
+                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <input ref="avatarInput" type="file" accept="image/*" style="display:none" @change="handleAvatarSelect" />
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">头像</div>
                 <div class="setting-item__desc">支持 JPG / PNG，建议 256×256</div>
               </div>
-              <button class="btn">上传头像</button>
+              <button class="btn" :disabled="!avatarFile" @click="uploadAvatar">
+                {{ avatarFile ? '上传' : '选择图片' }}
+              </button>
             </div>
             <div class="setting-item">
               <div class="setting-item__icon">
@@ -69,9 +335,9 @@ const storagePercent = computed(() => {
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">用户名</div>
-                <div class="setting-item__desc">你的显示名称</div>
+                <div class="setting-item__desc">{{ username }}</div>
               </div>
-              <input :value="username" class="input" type="text" readonly />
+              <button class="btn" @click="openProfileModal">修改</button>
             </div>
             <div class="setting-item">
               <div class="setting-item__icon">
@@ -79,9 +345,9 @@ const storagePercent = computed(() => {
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">邮箱</div>
-                <div class="setting-item__desc">用于登录和通知</div>
+                <div class="setting-item__desc">{{ email }}</div>
               </div>
-              <input :value="email" class="input input--long" type="email" readonly />
+              <button class="btn" @click="openProfileModal">修改</button>
             </div>
             <div class="setting-item" style="border-bottom:none;">
               <div class="setting-item__icon">
@@ -91,7 +357,7 @@ const storagePercent = computed(() => {
                 <div class="setting-item__label">密码</div>
                 <div class="setting-item__desc">********</div>
               </div>
-              <button class="btn">修改密码</button>
+              <button class="btn" @click="openPasswordModal">修改密码</button>
             </div>
           </div>
         </div>
@@ -109,9 +375,24 @@ const storagePercent = computed(() => {
                 <div class="setting-item__desc">纸书质感 · 适合长时间阅读</div>
               </div>
               <div class="theme-dots">
-                <button class="btn" style="border-radius:50%;width:32px;height:32px;padding:0;background:#C67A4E;border-color:#C67A4E;"></button>
-                <button class="btn" style="border-radius:50%;width:32px;height:32px;padding:0;background:#2563EB;border-color:#2563EB;"></button>
-                <button class="btn" style="border-radius:50%;width:32px;height:32px;padding:0;background:#1E293B;border-color:#1E293B;"></button>
+                <button 
+                  :class="['btn', 'theme-dot', { active: settingsStore.theme === 'warm' }]" 
+                  style="background:#C67A4E;" 
+                  title="暖色主题"
+                  @click="setTheme('warm')"
+                ></button>
+                <button 
+                  :class="['btn', 'theme-dot', { active: settingsStore.theme === 'blue' }]" 
+                  style="background:#2563EB;" 
+                  title="蓝色主题"
+                  @click="setTheme('blue')"
+                ></button>
+                <button 
+                  :class="['btn', 'theme-dot', { active: settingsStore.theme === 'dark' }]" 
+                  style="background:#1E293B;" 
+                  title="深色主题"
+                  @click="setTheme('dark')"
+                ></button>
               </div>
             </div>
             <div class="setting-item">
@@ -122,10 +403,11 @@ const storagePercent = computed(() => {
                 <div class="setting-item__label">字体</div>
                 <div class="setting-item__desc">正文使用衬线字体，更适合阅读</div>
               </div>
-              <select class="input" style="width:140px;cursor:pointer;">
-                <option>Noto Serif SC</option>
-                <option>思源宋体</option>
-                <option>Inter</option>
+              <select :value="settingsStore.font" class="input" style="width:140px;cursor:pointer;" @change="setFont(($event.target as HTMLSelectElement).value)">
+                <option value="Noto Serif SC">Noto Serif SC</option>
+                <option value="思源宋体">思源宋体</option>
+                <option value="Inter">Inter</option>
+                <option value="系统默认">系统默认</option>
               </select>
             </div>
             <div class="setting-item" style="border-bottom:none;">
@@ -138,7 +420,7 @@ const storagePercent = computed(() => {
               </div>
               <div
                 :class="['toggle', { active: readingMode }]"
-                @click="readingMode = !readingMode"
+                @click="handleReadingModeChange"
               ></div>
             </div>
           </div>
@@ -164,9 +446,9 @@ const storagePercent = computed(() => {
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">文档数量</div>
-                <div class="setting-item__desc">—</div>
+                <div class="setting-item__desc">{{ documentCount }} 篇</div>
               </div>
-              <button class="btn">导出数据</button>
+              <button class="btn" @click="exportData">导出数据</button>
             </div>
           </div>
         </div>
@@ -232,7 +514,7 @@ const storagePercent = computed(() => {
                 <div class="setting-item__label" style="color:#DC2626;">删除账号</div>
                 <div class="setting-item__desc">删除所有数据，此操作不可撤销</div>
               </div>
-              <button class="btn" style="border-color:#FECACA;color:#DC2626;">删除账号</button>
+              <button class="btn" style="border-color:#FECACA;color:#DC2626;" @click="openDeleteModal">删除账号</button>
             </div>
           </div>
         </div>
@@ -250,6 +532,34 @@ const storagePercent = computed(() => {
 }
 .main-inner { width: 100%; max-width: 800px; }
 
+.notification-toast {
+  position: fixed;
+  top: 4.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 0.75rem 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-family: var(--font-ui);
+  font-size: 0.875rem;
+  color: var(--accent);
+  animation: fadeInDown 0.3s ease;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 .page-title { font-family: var(--font-display); font-size: 1.6rem; font-weight: 500; margin-bottom: 2rem; }
 
 .section { margin-bottom: 2rem; }
@@ -266,6 +576,22 @@ const storagePercent = computed(() => {
 .setting-item__action { flex-shrink: 0; }
 
 .theme-dots { display: flex; gap: 0.4rem; }
+.theme-dot {
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  min-width: 32px;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+.theme-dot:hover {
+  transform: scale(1.1);
+}
+.theme-dot.active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--bg-page);
+}
 
 .input { padding: 0.5rem 0.8rem; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-page); font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-primary); outline: none; width: 200px; }
 .input:focus { border-color: var(--accent); }
@@ -274,7 +600,7 @@ const storagePercent = computed(() => {
 .btn { padding: 0.4rem 1rem; border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-card); font-family: var(--font-ui); font-size: 0.8rem; color: var(--text-secondary); cursor: pointer; transition: all 0.12s; }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
 .btn--primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn--primary:hover { background: var(--accent-hover); }
+.btn--primary:hover { opacity: 0.9; }
 
 .toggle { position: relative; width: 40px; height: 22px; background: var(--border-color); border-radius: 11px; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
 .toggle.active { background: var(--accent); }
@@ -286,6 +612,52 @@ const storagePercent = computed(() => {
 
 .avatar-upload { width: 64px; height: 64px; border-radius: 50%; background: var(--accent-light); display: flex; align-items: center; justify-content: center; color: var(--accent); cursor: pointer; position: relative; overflow: hidden; flex-shrink: 0; }
 .avatar-upload svg { width: 28px; height: 28px; }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal__title {
+  padding: 1.25rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal__content {
+  padding: 1.25rem;
+}
+
+.modal__input {
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.modal__actions {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
 
 @media (max-width: 640px) {
   .settings-page { padding: 1.2rem; }

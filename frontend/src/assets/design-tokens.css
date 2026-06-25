@@ -36,6 +36,45 @@
   background-size: 100% 2px;
 }
 
+/* Reading mode: paper texture overlay on the entire app */
+.reading-mode body {
+  background-image:
+    /* Subtle paper grain texture */
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 1px,
+      rgba(0, 0, 0, 0.005) 1px,
+      rgba(0, 0, 0, 0.005) 2px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.003) 2px,
+      rgba(0, 0, 0, 0.003) 3px
+    );
+  background-size: 100% 2px, 3px 100%;
+}
+
+/* Reading mode: softer contrast for reader content */
+.reading-mode .reader-content {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(198, 122, 78, 0.03) 0%, transparent 70%),
+    radial-gradient(ellipse at 50% 100%, rgba(198, 122, 78, 0.02) 0%, transparent 70%);
+}
+
+.reading-mode .doc-body {
+  color: #4A3C30;
+  letter-spacing: 0.01em;
+  line-height: 2;
+}
+
+/* Reading mode: slightly wider max-width for comfortable reading */
+.reading-mode .reader-inner {
+  max-width: 720px;
+}
+
 /* Lucide icon sizing helpers */
 .icon { width: 22px; height: 22px; stroke-width: 1.5; }
 .icon-sm { width: 18px; height: 18px; stroke-width: 1.5; }

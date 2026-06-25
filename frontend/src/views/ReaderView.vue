@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDocumentStore } from '../stores/documentStore'
 import { useAnnotationStore } from '../stores/annotationStore'
@@ -414,6 +414,7 @@ function onReaderKeydown(event: KeyboardEvent) {
 // Progress tracking
 let progressTimer: ReturnType<typeof setInterval> | null = null
 const CONTENT_SAVE_INTERVAL = 3000 // ms
+const MIN_OPENED_PROGRESS = 1
 
 const doc = computed(() => documentStore.currentDocument)
 const content = computed(() => documentStore.documentContent)
@@ -524,24 +525,52 @@ function goToAnnotation(annotation: Annotation) {
   scrollToAnnotation(annotation.selected_text)
 }
 
-/** Calculate reading progress based on scroll position (for non-PDF files) */
+function clampProgress(progress: number) {
+  return Math.max(MIN_OPENED_PROGRESS, Math.min(100, progress))
+}
+
+function getTextReaderElement() {
+  return document.querySelector<HTMLElement>('.mde-canvas .mde-prose') ||
+    document.querySelector<HTMLElement>('.mde-main')
+}
+
+function getReaderViewportHeight() {
+  const topbar = document.querySelector<HTMLElement>('.mde-topbar')
+  const search = document.querySelector<HTMLElement>('.mde-search')
+  const chromeHeight = (topbar?.offsetHeight || 0) + (search?.offsetHeight || 0)
+  return Math.max(1, window.innerHeight - chromeHeight)
+}
+
+/** Calculate reading progress based on the visible text document, not the whole page chrome. */
 function calcScrollProgress(): number {
-  const scrollTop = window.scrollY
-  const docHeight = document.documentElement.scrollHeight - window.innerHeight
-  if (docHeight <= 0) return 0
-  return Math.round((scrollTop / docHeight) * 100)
+  const reader = getTextReaderElement()
+  if (!reader) return MIN_OPENED_PROGRESS
+
+  const rect = reader.getBoundingClientRect()
+  const readerTop = rect.top + window.scrollY
+  const readerHeight = Math.max(reader.scrollHeight, rect.height)
+  const viewportHeight = getReaderViewportHeight()
+
+  if (readerHeight <= viewportHeight + 1) return 100
+
+  const scrollableDistance = readerHeight - viewportHeight
+  const topbar = document.querySelector<HTMLElement>('.mde-topbar')
+  const search = document.querySelector<HTMLElement>('.mde-search')
+  const chromeHeight = (topbar?.offsetHeight || 0) + (search?.offsetHeight || 0)
+  const progress = ((window.scrollY - Math.max(0, readerTop - chromeHeight)) / scrollableDistance) * 100
+  return clampProgress(Math.round(progress))
 }
 
 /** Save current scroll-based progress to backend (only if higher than last saved) */
 let lastSavedTextProgress = 0
 
 function saveTextProgress() {
-  const p = calcScrollProgress()
+  const nextProgress = calcScrollProgress()
   // Only update if progress has increased (prevents opening a doc from resetting progress)
-  if (p > lastSavedTextProgress) {
-    lastSavedTextProgress = p
-    console.log(`[Reader] 💾 Saving progress: ${p}% (scroll ${window.scrollY} / ${document.documentElement.scrollHeight - window.innerHeight})`)
-    documentStore.updateProgress(capturedDocId, Math.max(1, p))
+  if (nextProgress > lastSavedTextProgress) {
+    lastSavedTextProgress = nextProgress
+    console.log(`[Reader] 💾 Saving progress: ${nextProgress}% (scroll ${window.scrollY} / ${document.documentElement.scrollHeight - window.innerHeight})`)
+    void documentStore.updateProgress(capturedDocId, nextProgress)
   }
 }
 
@@ -587,14 +616,29 @@ onMounted(async () => {
     // Seed lastSavedTextProgress with the server's stored progress so we don't regress
     lastSavedTextProgress = doc.value?.read_progress || 0
     console.log(`[Reader] 📖 Opened doc #${capturedDocId} (type=${doc.value?.file_type}), server progress=${lastSavedTextProgress}%`)
-    // Save initial "opened" status immediately (1% floor), won't regress due to > guard
-    saveTextProgress()
+    
+    // Mark as opened (1%) immediately if no progress yet
+    if (lastSavedTextProgress < 1) {
+      await documentStore.markAsRead(capturedDocId)
+      lastSavedTextProgress = 1
+    }
+    
+    // Check if document fits in viewport (short document) - auto mark as 100%
+    setTimeout(() => {
+      const progress = calcScrollProgress()
+      if (progress >= 100) {
+        console.log(`[Reader] 📄 Short document detected, auto-marking as 100%`)
+        lastSavedTextProgress = 100
+        void documentStore.updateProgress(capturedDocId, 100)
+      }
+    }, 100)
+    
     // Save periodically while reading
     progressTimer = setInterval(saveTextProgress, CONTENT_SAVE_INTERVAL)
   }
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('keydown', onReaderKeydown)
   document.removeEventListener('pointerdown', onDocumentPointerDown, true)
@@ -605,14 +649,10 @@ onUnmounted(() => {
   }
   if (doc.value?.file_type === 'pdf') {
     if (lastPDFProgress > 0) {
-      documentStore.updateProgress(capturedDocId, lastPDFProgress)
+      void documentStore.updateProgress(capturedDocId, lastPDFProgress)
     }
   } else {
-    const finalP = calcScrollProgress()
-    // Only save if it's higher than what was last saved
-    if (finalP > lastSavedTextProgress) {
-      documentStore.updateProgress(capturedDocId, Math.max(1, finalP))
-    }
+    saveTextProgress()
   }
 })
 </script>
