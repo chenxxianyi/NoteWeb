@@ -10,11 +10,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type DocumentHandler struct {
-	svc *service.DocumentService
+type DocumentHandlerService interface {
+	List(userID uint, search, fileType string, page, pageSize int) ([]service.DocumentResponse, error)
+	GetDetail(docID, userID uint) (*service.DocumentDetailResponse, error)
+	Upload(userID uint, fileName string, fileSize int64, reader io.Reader) (*service.DocumentResponse, error)
+	Rename(docID, userID uint, title string) error
+	Delete(docID, userID uint) error
+	GetContent(docID, userID uint) (*service.DocumentDetailResponse, error)
+	GetFileData(docID, userID uint) ([]byte, string, error)
+	UpdateReadProgress(docID, userID uint, progress float64) error
+	UpdateTextContent(docID, userID uint, content string) error
+	UploadAsset(docID, userID uint, fileName string, reader io.Reader) (string, error)
+	GetAssetData(docID uint, assetName string) ([]byte, string, error)
 }
 
-func NewDocumentHandler(svc *service.DocumentService) *DocumentHandler {
+type DocumentHandler struct {
+	svc DocumentHandlerService
+}
+
+func NewDocumentHandler(svc DocumentHandlerService) *DocumentHandler {
 	return &DocumentHandler{svc: svc}
 }
 
@@ -102,7 +116,7 @@ func (h *DocumentHandler) GetContent(c *gin.Context) {
 	userID := c.GetUint("userID")
 	docID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
-	doc, err := h.svc.GetDetail(uint(docID), userID)
+	doc, err := h.svc.GetContent(uint(docID), userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"detail": err.Error()})
 		return

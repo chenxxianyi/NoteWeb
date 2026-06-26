@@ -153,4 +153,48 @@
 
 ---
 
-*报告由 Playwright E2E 测试框架自动生成*
+## 后端单元测试结果
+
+### Service 层 — 46 个测试 ✅
+
+| 文件 | 测试数 | 覆盖 |
+|------|-------|------|
+| `service/auth_service_test.go` | 21 | 注册/登录/改密/资料/头像/删除/密码验证所有场景 |
+| `service/document_service_test.go` | 20 | 文本解析、BOM 处理、PDF 文本提取、文件类型/MIME 检测 |
+| `service/annotation_service_test.go` | 3 | Annotation Replace 逻辑（已有） |
+| `service/document_service_test.go` | 1 | DOCX XML → Markdown 转换（已有） |
+| `service/config_test.go` | 2 | 配置加载（已有） |
+| `service/models` | 1 | 模型验证（已有） |
+
+### Handler 层 — 36 个测试 ✅
+
+| 文件 | 测试数 | 覆盖 |
+|------|-------|------|
+| `auth_handler_test.go` | 12 | Register/Login/Me/ChangePassword/UpdateProfile/DeleteAccount |
+| `document_handler_test.go` | 12 | List/Get/Content/File/Upload/Rename/Delete/ReadProgress |
+| `remaining_handlers_test.go` | 9 | Notes(4)/Annotations(2)/Dashboard(1)/Settings(2) |
+| `auth_middleware_test.go` | 3 | 无 token/无效 token/有效 token |
+
+### 全项目汇总
+
+| 包 | 测试数 | 状态 |
+|---|-------|------|
+| `config` | 2 | ✅ |
+| `models` | 1 | ✅ |
+| `service` | 46 | ✅ |
+| `handlers` | 36 | ✅ |
+| **后端总计** | **85** | **全部通过** |
+| **前端 E2E** | **44** | **全部通过** |
+
+### 运行命令
+
+```bash
+# 后端
+cd D:\project\NoteWeb\backend-go
+go test ./internal/...
+
+# 前端 E2E（前后端需先启动）
+cd D:\project\NoteWeb\frontend
+npm run test:e2e
+```
+

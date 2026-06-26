@@ -241,12 +241,12 @@ onMounted(async () => {
 .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
 .topbar__greeting h1 { font-family: var(--font-display); font-size: 1.6rem; font-weight: 500; color: var(--text-primary); }
 .topbar__greeting p { font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; }
-.topbar__actions { display: flex; gap: 0.6rem; align-items: center; }
-.topbar__search { position: relative; }
+.topbar__actions { display: flex; gap: 0.6rem; align-items: center; flex: 1; justify-content: flex-end; min-width: 0; }
+.topbar__search { position: relative; flex: 0 1 420px; min-width: 240px; }
 .topbar__search input {
   font-family: var(--font-ui); font-size: 0.85rem; padding: 0.5rem 0.8rem 0.5rem 2.2rem;
   border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-card);
-  color: var(--text-primary); outline: none; width: 200px; transition: border-color 0.15s;
+  color: var(--text-primary); outline: none; width: 100%; transition: border-color 0.15s;
 }
 .topbar__search input:focus { border-color: var(--accent); }
 .topbar__search input::placeholder { color: var(--text-muted); }
@@ -310,12 +310,14 @@ onMounted(async () => {
   .timeline-wrap .timeline:last-child { padding-left: 0; }
   .weekly-overview__grid { grid-template-columns: repeat(2, 1fr); }
   .dashboard { padding: 1.25rem; }
-  .topbar__search input { width: 140px; }
+  .topbar__search { flex-basis: 360px; min-width: 220px; }
 }
 @media (max-width: 520px) {
   .dashboard { padding: 0.8rem; }
-  .topbar { flex-direction: column; align-items: flex-start; }
+  .topbar { flex-direction: column; align-items: stretch; }
   .topbar__greeting h1 { font-size: 1.1rem; }
+  .topbar__actions { width: 100%; justify-content: flex-start; }
+  .topbar__search { flex: 1 1 auto; min-width: 0; }
   .upload-btn span { display: none; }
 }
 </style>

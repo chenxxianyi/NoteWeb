@@ -8,11 +8,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type AnnotationHandler struct {
-	svc *service.AnnotationService
+type AnnotationHandlerService interface {
+	ListByDocument(docID, userID uint) ([]service.AnnotationResponse, error)
+	Create(userID uint, req service.AnnotationCreateRequest) (*service.AnnotationResponse, error)
+	Delete(annID, userID uint) error
+	Replace(userID uint, req service.AnnotationReplaceRequest) ([]service.AnnotationResponse, error)
 }
 
-func NewAnnotationHandler(svc *service.AnnotationService) *AnnotationHandler {
+type AnnotationHandler struct {
+	svc AnnotationHandlerService
+}
+
+func NewAnnotationHandler(svc AnnotationHandlerService) *AnnotationHandler {
 	return &AnnotationHandler{svc: svc}
 }
 

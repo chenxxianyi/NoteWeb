@@ -6,17 +6,25 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/models"
-	"github.com/chenxxianyi/NoteWeb/backend-go/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
 
+type UserRepository interface {
+	GetByID(id uint) (*models.User, error)
+	GetByEmail(email string) (*models.User, error)
+	GetByUsername(username string) (*models.User, error)
+	Create(user *models.User) error
+	Update(user *models.User) error
+	Delete(userID uint) error
+}
+
 type AuthService struct {
-	userRepo  *repository.UserRepo
+	userRepo  UserRepository
 	secretKey string
 	expireMin int
 }
 
-func NewAuthService(userRepo *repository.UserRepo, secretKey string, expireMin int) *AuthService {
+func NewAuthService(userRepo UserRepository, secretKey string, expireMin int) *AuthService {
 	return &AuthService{userRepo: userRepo, secretKey: secretKey, expireMin: expireMin}
 }
 

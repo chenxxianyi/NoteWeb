@@ -3,15 +3,20 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/chenxxianyi/NoteWeb/backend-go/internal/service"
+	"github.com/chenxxianyi/NoteWeb/backend-go/internal/models"
 	"github.com/gin-gonic/gin"
 )
 
-type UserSettingsHandler struct {
-	svc *service.UserSettingsService
+type UserSettingsHandlerService interface {
+	GetSettings(userID uint) (*models.UserSettings, error)
+	UpdateSettings(userID uint, theme, font string, readingMode bool) error
 }
 
-func NewUserSettingsHandler(svc *service.UserSettingsService) *UserSettingsHandler {
+type UserSettingsHandler struct {
+	svc UserSettingsHandlerService
+}
+
+func NewUserSettingsHandler(svc UserSettingsHandlerService) *UserSettingsHandler {
 	return &UserSettingsHandler{svc: svc}
 }
 

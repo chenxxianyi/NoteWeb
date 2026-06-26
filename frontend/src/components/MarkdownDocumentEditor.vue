@@ -14,7 +14,6 @@ import {
   Check,
   Code2,
   FolderOpen,
-  FileText,
   Heading1,
   Heading2,
   Image as ImageIcon,
@@ -37,6 +36,7 @@ import {
 } from 'lucide-vue-next'
 import { useDocumentStore } from '../stores/documentStore'
 import { uploadDocumentAsset } from '../api/document'
+import ReaderTopbar from './ReaderTopbar.vue'
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'saved' | 'error'
 type HeadingItem = {
@@ -470,7 +470,7 @@ function scrollHeadingIntoView(target: HTMLElement) {
 }
 
 function getEditorChromeOffset() {
-  const topbar = document.querySelector<HTMLElement>('.mde-topbar')
+  const topbar = document.querySelector<HTMLElement>('.reader-topbar')
   const search = searchOpen.value ? document.querySelector<HTMLElement>('.mde-search') : null
   return (topbar?.offsetHeight || 0) + (search?.offsetHeight || 0) + 28
 }
@@ -510,35 +510,34 @@ function findMatch(direction: 1 | -1) {
 
 <template>
   <section class="mde-shell">
-    <header class="mde-topbar">
-      <div class="mde-title">
-        <button type="button" class="mde-back" title="返回" aria-label="返回" @click="emit('back')">
-          <ArrowLeft />
-        </button>
-        <FileText aria-hidden="true" />
-        <div>
-          <h1>{{ title || '未命名文档' }}</h1>
-          <span>{{ fileType.toUpperCase() }} · Markdown 编辑</span>
-        </div>
-      </div>
+    <ReaderTopbar
+      :title="title || '未命名文档'"
+      :meta="`${fileType.toUpperCase()} · Markdown 编辑`"
+      center-label="Markdown 编辑工具"
+      @back="emit('back')"
+    >
+      <template #back-icon>
+        <ArrowLeft />
+      </template>
 
-      <div class="mde-actions" role="toolbar" aria-label="Markdown 编辑工具">
-        <button type="button" title="撤销" aria-label="撤销" @click="runCommand('undo')"><Undo2 /></button>
-        <button type="button" title="重做" aria-label="重做" @click="runCommand('redo')"><Redo2 /></button>
-        <span class="mde-divider"></span>
-        <button type="button" :class="{ active: isActive('bold') }" title="加粗" aria-label="加粗" @click="runCommand('bold')"><Bold /></button>
-        <button type="button" :class="{ active: isActive('italic') }" title="斜体" aria-label="斜体" @click="runCommand('italic')"><Italic /></button>
-        <button type="button" :class="{ active: isActive('strike') }" title="删除线" aria-label="删除线" @click="runCommand('strike')"><Strikethrough /></button>
-        <button type="button" :class="{ active: isActive('code') }" title="行内代码" aria-label="行内代码" @click="runCommand('code')"><Code2 /></button>
-        <span class="mde-divider"></span>
-        <button type="button" :class="{ active: isActive('heading1') }" title="一级标题" aria-label="一级标题" @click="runCommand('heading1')"><Heading1 /></button>
-        <button type="button" :class="{ active: isActive('heading2') }" title="二级标题" aria-label="二级标题" @click="runCommand('heading2')"><Heading2 /></button>
-        <button type="button" :class="{ active: isActive('bulletList') }" title="无序列表" aria-label="无序列表" @click="runCommand('bulletList')"><List /></button>
-        <button type="button" :class="{ active: isActive('orderedList') }" title="有序列表" aria-label="有序列表" @click="runCommand('orderedList')"><ListOrdered /></button>
-        <button type="button" :class="{ active: isActive('blockquote') }" title="引用" aria-label="引用" @click="runCommand('blockquote')"><Quote /></button>
-        <button type="button" :class="{ active: isActive('link') }" title="链接" aria-label="链接" @click="runCommand('link')"><LinkIcon /></button>
+      <template #center>
+        <div class="mde-actions">
+          <button type="button" class="rtb-btn" title="撤销" aria-label="撤销" @click="runCommand('undo')"><Undo2 /></button>
+          <button type="button" class="rtb-btn" title="重做" aria-label="重做" @click="runCommand('redo')"><Redo2 /></button>
+          <span class="rtb-divider mde-divider"></span>
+          <button type="button" :class="['rtb-btn', { active: isActive('bold') }]" title="加粗" aria-label="加粗" @click="runCommand('bold')"><Bold /></button>
+          <button type="button" :class="['rtb-btn', { active: isActive('italic') }]" title="斜体" aria-label="斜体" @click="runCommand('italic')"><Italic /></button>
+          <button type="button" :class="['rtb-btn', { active: isActive('strike') }]" title="删除线" aria-label="删除线" @click="runCommand('strike')"><Strikethrough /></button>
+          <button type="button" :class="['rtb-btn', { active: isActive('code') }]" title="行内代码" aria-label="行内代码" @click="runCommand('code')"><Code2 /></button>
+          <span class="rtb-divider mde-divider"></span>
+          <button type="button" :class="['rtb-btn', { active: isActive('heading1') }]" title="一级标题" aria-label="一级标题" @click="runCommand('heading1')"><Heading1 /></button>
+          <button type="button" :class="['rtb-btn', { active: isActive('heading2') }]" title="二级标题" aria-label="二级标题" @click="runCommand('heading2')"><Heading2 /></button>
+          <button type="button" :class="['rtb-btn', { active: isActive('bulletList') }]" title="无序列表" aria-label="无序列表" @click="runCommand('bulletList')"><List /></button>
+          <button type="button" :class="['rtb-btn', { active: isActive('orderedList') }]" title="有序列表" aria-label="有序列表" @click="runCommand('orderedList')"><ListOrdered /></button>
+          <button type="button" :class="['rtb-btn', { active: isActive('blockquote') }]" title="引用" aria-label="引用" @click="runCommand('blockquote')"><Quote /></button>
+          <button type="button" :class="['rtb-btn', { active: isActive('link') }]" title="链接" aria-label="链接" @click="runCommand('link')"><LinkIcon /></button>
         <div class="mde-image-tool">
-          <button type="button" :class="{ active: imagePanelOpen }" title="图片" aria-label="插入图片" @click="runCommand('image')"><ImageIcon /></button>
+          <button type="button" :class="['rtb-btn', { active: imagePanelOpen }]" title="图片" aria-label="插入图片" @click="runCommand('image')"><ImageIcon /></button>
           <div v-if="imagePanelOpen" class="mde-image-panel" @keydown.esc.prevent="closeImagePanel">
             <div class="mde-image-panel__header">
               <strong>插入图片</strong>
@@ -595,9 +594,11 @@ function findMatch(direction: 1 | -1) {
           </div>
         </div>
       </div>
+      </template>
 
+      <template #side>
       <div class="mde-side-actions">
-        <button type="button" :class="['mde-save', `mde-save--${saveState}`]" @click="saveNow">
+        <button type="button" :class="['rtb-status', 'mde-save', `mde-save--${saveState}`]" @click="saveNow">
           <LoaderCircle v-if="saveState === 'saving'" class="spin" />
           <Check v-else-if="saveState === 'saved' || saveState === 'clean'" />
           <Save v-else />
@@ -605,20 +606,21 @@ function findMatch(direction: 1 | -1) {
         </button>
         <button
           type="button"
-          :class="{ active: aiActive }"
+          :class="['rtb-btn', { active: aiActive }]"
           title="AI助手"
           aria-label="AI助手"
           @click="emit('toggleAi')"
         >
           <Sparkles />
         </button>
-        <button type="button" title="搜索" aria-label="搜索" @click="searchOpen = !searchOpen"><Search /></button>
-        <button type="button" title="大纲" aria-label="切换大纲" @click="outlineOpen = !outlineOpen">
+        <button type="button" class="rtb-btn" title="搜索" aria-label="搜索" @click="searchOpen = !searchOpen"><Search /></button>
+        <button type="button" class="rtb-btn" title="大纲" aria-label="切换大纲" @click="outlineOpen = !outlineOpen">
           <PanelRightClose v-if="outlineOpen" />
           <PanelRightOpen v-else />
         </button>
       </div>
-    </header>
+      </template>
+    </ReaderTopbar>
 
     <div v-if="searchOpen" class="mde-search" role="search">
       <Search aria-hidden="true" />
@@ -674,54 +676,6 @@ function findMatch(direction: 1 | -1) {
   font-family: var(--font-body);
 }
 
-.mde-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(190px, 1fr);
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 1rem;
-  border-bottom: 1px solid var(--border-color);
-  background: rgba(250, 248, 245, 0.94);
-  backdrop-filter: blur(12px);
-  font-family: var(--font-ui);
-}
-
-.mde-title {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  min-width: 0;
-}
-
-.mde-title svg {
-  width: 22px;
-  height: 22px;
-  color: var(--accent);
-  flex: 0 0 auto;
-}
-
-.mde-title h1 {
-  overflow: hidden;
-  margin: 0;
-  color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: 1.08rem;
-  font-weight: 600;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mde-title span {
-  display: block;
-  margin-top: 0.1rem;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-}
-
 .mde-actions,
 .mde-side-actions {
   display: flex;
@@ -729,17 +683,6 @@ function findMatch(direction: 1 | -1) {
   gap: 0.18rem;
 }
 
-.mde-actions {
-  justify-content: center;
-}
-
-.mde-side-actions {
-  justify-content: flex-end;
-}
-
-.mde-back,
-.mde-actions button,
-.mde-side-actions button,
 .mde-search button {
   display: inline-flex;
   align-items: center;
@@ -754,29 +697,16 @@ function findMatch(direction: 1 | -1) {
   transition: background 0.16s, border-color 0.16s, color 0.16s;
 }
 
-.mde-back:hover,
-.mde-actions button:hover,
-.mde-side-actions button:hover,
 .mde-search button:hover {
   border-color: var(--border-color);
   background: var(--accent-light);
   color: var(--accent);
 }
 
-.mde-back:focus-visible,
-.mde-actions button:focus-visible,
-.mde-side-actions button:focus-visible,
 .mde-search button:focus-visible,
 .mde-search input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-.mde-actions button.active,
-.mde-side-actions button.active {
-  border-color: rgba(198, 122, 78, 0.36);
-  background: var(--accent-light);
-  color: var(--accent);
 }
 
 .mde-image-tool {
@@ -931,9 +861,6 @@ function findMatch(direction: 1 | -1) {
   text-align: left;
 }
 
-.mde-actions svg,
-.mde-back svg,
-.mde-side-actions svg,
 .mde-search svg {
   width: 17px;
   height: 17px;
@@ -1217,16 +1144,8 @@ function findMatch(direction: 1 | -1) {
 }
 
 @media (max-width: 1040px) {
-  .mde-topbar {
-    grid-template-columns: 1fr auto;
-  }
-
   .mde-actions {
-    order: 3;
-    grid-column: 1 / -1;
-    justify-content: flex-start;
     overflow-x: auto;
-    padding-top: 0.35rem;
   }
 
   .mde-main {
@@ -1240,15 +1159,6 @@ function findMatch(direction: 1 | -1) {
 }
 
 @media (max-width: 640px) {
-  .mde-topbar {
-    padding: 0.6rem 0.7rem;
-  }
-
-  .mde-title h1 {
-    font-size: 0.96rem;
-  }
-
-  .mde-title span,
   .mde-save span {
     display: none;
   }

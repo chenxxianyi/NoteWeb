@@ -8,11 +8,19 @@ import (
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/service"
 )
 
-type NoteHandler struct {
-	svc *service.NoteService
+type NoteHandlerService interface {
+	List(userID uint, documentID, tag string) ([]service.NoteResponse, error)
+	GetByID(noteID, userID uint) (*service.NoteResponse, error)
+	Create(userID uint, req service.NoteCreateRequest) (*service.NoteResponse, error)
+	Update(noteID, userID uint, req service.NoteUpdateRequest) (*service.NoteResponse, error)
+	Delete(noteID, userID uint) error
 }
 
-func NewNoteHandler(svc *service.NoteService) *NoteHandler {
+type NoteHandler struct {
+	svc NoteHandlerService
+}
+
+func NewNoteHandler(svc NoteHandlerService) *NoteHandler {
 	return &NoteHandler{svc: svc}
 }
 

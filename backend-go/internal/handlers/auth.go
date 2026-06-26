@@ -12,11 +12,23 @@ import (
 	"github.com/chenxxianyi/NoteWeb/backend-go/internal/service"
 )
 
-type AuthHandler struct {
-	svc *service.AuthService
+// AuthHandlerService defines the service methods needed by AuthHandler.
+type AuthHandlerService interface {
+	Register(username, email, password, confirmPassword string) (*service.AuthResponse, error)
+	Login(email, password string) (*service.AuthResponse, error)
+	GetUser(id uint) (*service.UserResponse, error)
+	ChangePassword(userID uint, oldPassword, newPassword string) error
+	UpdateProfile(userID uint, username, email string) (*service.UserResponse, error)
+	UpdateAvatar(userID uint, avatarURL string) (*service.UserResponse, error)
+	VerifyPassword(userID uint, password string) error
+	DeleteUser(userID uint) error
 }
 
-func NewAuthHandler(svc *service.AuthService) *AuthHandler {
+type AuthHandler struct {
+	svc AuthHandlerService
+}
+
+func NewAuthHandler(svc AuthHandlerService) *AuthHandler {
 	return &AuthHandler{svc: svc}
 }
 

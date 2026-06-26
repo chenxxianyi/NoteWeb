@@ -30,7 +30,7 @@ onMounted(() => {
 <template>
   <div class="app-layout">
     <Sidebar />
-    <main :class="['main', { 'main--reading-mode': isReadingModeActive }]">
+    <main :class="['main', { 'main--reading-mode': isReadingModeActive, 'main--reader': isReaderView }]">
       <slot />
     </main>
   </div>
@@ -63,8 +63,13 @@ onMounted(() => {
   margin-left: 4px;
 }
 
-@media (max-width: 520px) {
-  .main {
+@media (max-width: 640px) {
+  .main:not(.main--reader) {
+    margin-left: 0;
+    padding-bottom: calc(86px + env(safe-area-inset-bottom));
+  }
+
+  .main--reader {
     margin-left: 0;
   }
 }

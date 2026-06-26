@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '../stores/noteStore'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import { Node } from '@tiptap/core'
@@ -12,6 +12,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
 import {
   AlertTriangle,
+  ArrowLeft,
   Bold,
   CheckCircle2,
   ChevronRight,
@@ -107,6 +108,7 @@ const SimpleTable = Node.create({
 
 const noteStore = useNoteStore()
 const route = useRoute()
+const router = useRouter()
 
 const activeNoteId = ref<number | null>(null)
 const searchQuery = ref('')
@@ -289,6 +291,14 @@ watch(currentNote, (note) => {
 function selectNote(id: number) {
   activeNoteId.value = id
   void noteStore.fetchNote(id)
+}
+
+function goBack() {
+  if (window.history.length > 1) {
+    router.back()
+    return
+  }
+  void router.push('/dashboard')
 }
 
 function getRouteNoteId() {
@@ -669,6 +679,23 @@ function formatDate(dateStr?: string): string {
   return dateStr.substring(0, 10)
 }
 
+function getNotePreview(content?: string): string {
+  if (!content) return '...'
+  const text = content
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text || '...'
+}
+
 onMounted(async () => {
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   document.addEventListener('keydown', handleDocumentKeydown)
@@ -695,7 +722,12 @@ onBeforeUnmount(() => {
 
       <div class="note-list">
         <div class="nl-header">
-          <h2>笔记</h2>
+          <div class="nl-header__title">
+            <button class="nl-header__back" type="button" title="返回" aria-label="返回" @click="goBack">
+              <ArrowLeft :size="17" :stroke-width="2" />
+            </button>
+            <h2>笔记</h2>
+          </div>
           <div class="nl-header__actions">
             <button
               class="nl-header__btn nl-header__btn--danger"
@@ -739,7 +771,7 @@ onBeforeUnmount(() => {
             @click="selectNote(note.id)"
           >
             <div class="nl-item__title">{{ note.title || '未命名笔记' }}</div>
-            <div class="nl-item__preview">{{ note.content?.substring(0, 60) || '...' }}</div>
+            <div class="nl-item__preview">{{ getNotePreview(note.content).substring(0, 72) }}</div>
             <div class="nl-item__meta">
               <span class="nl-item__tag tag-reading">{{ note.tags?.[0] || '笔记' }}</span>
               <span>{{ note.document_title || '独立笔记' }} · {{ formatDate(note.updated_at) }}</span>
@@ -904,10 +936,16 @@ onBeforeUnmount(() => {
 
 .note-list { width: 340px; background: var(--bg-card); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; flex-shrink: 0; }
 .nl-header { padding: 1rem 1.2rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.nl-header__title { display: flex; align-items: center; gap: 0.45rem; min-width: 0; }
 .nl-header h2 { font-family: var(--font-display); font-size: 1.1rem; font-weight: 500; }
 .nl-header__actions { display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0; }
+.nl-header__back,
 .nl-header__btn { width: 32px; height: 32px; border: 1px solid var(--border-color); border-radius: 50%; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--accent); transition: all 0.12s; }
+.nl-header__back { display: none; color: var(--text-secondary); }
+.nl-header__back:hover,
 .nl-header__btn:hover { background: var(--accent-light); }
+.nl-header__back:focus-visible,
+.nl-header__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .nl-header__btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .nl-header__btn--danger { color: #b42318; }
 .nl-header__btn--danger:hover:not(:disabled) { background: #fff1ef; border-color: #f3b0a7; }
@@ -996,5 +1034,13 @@ onBeforeUnmount(() => {
 .ne-footer__btn--danger:hover:not(:disabled) { border-color: #f3b0a7; background: #fff1ef; color: #b42318; }
 
 @media (max-width: 820px) { .note-list { width: 280px; } }
-@media (max-width: 620px) { .note-list { width: 100%; } .note-editor { display: none; } .note-toast { top: 3.75rem; } }
+@media (max-width: 620px) {
+  .note-list { width: 100%; border-right: none; }
+  .nl-header { min-height: 84px; padding: 1rem 1.25rem; }
+  .nl-header__title { gap: 0.55rem; }
+  .nl-header__back { display: flex; }
+  .nl-header h2 { font-size: 1.08rem; }
+  .note-editor { display: none; }
+  .note-toast { top: 3.75rem; }
+}
 </style>

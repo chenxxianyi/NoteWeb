@@ -38,6 +38,7 @@ import {
 import PDFViewer from '../components/PDFViewer.vue'
 import AnnotationToolbar from '../components/AnnotationToolbar.vue'
 import MarkdownDocumentEditor from '../components/MarkdownDocumentEditor.vue'
+import ReaderTopbar from '../components/ReaderTopbar.vue'
 import type { Annotation } from '../types/annotation'
 import type { PDFActiveTool, ShapeType, TextDrawing } from '../components/pdfDrawingTypes'
 
@@ -608,7 +609,7 @@ function getTextReaderElement() {
 }
 
 function getReaderViewportHeight() {
-  const topbar = document.querySelector<HTMLElement>('.mde-topbar')
+  const topbar = document.querySelector<HTMLElement>('.reader-topbar')
   const search = document.querySelector<HTMLElement>('.mde-search')
   const chromeHeight = (topbar?.offsetHeight || 0) + (search?.offsetHeight || 0)
   return Math.max(1, window.innerHeight - chromeHeight)
@@ -627,7 +628,7 @@ function calcScrollProgress(): number {
   if (readerHeight <= viewportHeight + 1) return 100
 
   const scrollableDistance = readerHeight - viewportHeight
-  const topbar = document.querySelector<HTMLElement>('.mde-topbar')
+  const topbar = document.querySelector<HTMLElement>('.reader-topbar')
   const search = document.querySelector<HTMLElement>('.mde-search')
   const chromeHeight = (topbar?.offsetHeight || 0) + (search?.offsetHeight || 0)
   const progress = ((window.scrollY - Math.max(0, readerTop - chromeHeight)) / scrollableDistance) * 100
@@ -673,11 +674,14 @@ onMounted(async () => {
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
   capturedDocId = docId.value // lock in the id before any redirect may happen
   try {
-    await Promise.all([
-      documentStore.fetchDocument(capturedDocId),
-      documentStore.fetchDocumentContent(capturedDocId),
+    const fetchedDoc = await documentStore.fetchDocument(capturedDocId)
+    const initialRequests: Promise<unknown>[] = [
       annotationStore.fetchAnnotations(capturedDocId),
-    ])
+    ]
+    if (fetchedDoc.file_type !== 'pdf') {
+      initialRequests.push(documentStore.fetchDocumentContent(capturedDocId))
+    }
+    await Promise.all(initialRequests)
   } catch {
     // document not found — redirect
     router.push('/documents')
@@ -735,37 +739,35 @@ onBeforeUnmount(() => {
     <!-- Overlay -->
     <div :class="['panel-overlay', { show: panelRightOpen }]" @click="closePanels"></div>
 
-    <!-- PDF uses the same top navigation format as editable documents. -->
-    <header
+    <ReaderTopbar
       v-if="doc?.file_type === 'pdf'"
-      :class="['reader-topbar', { hidden: topbarHidden, 'eraser-active': pdfActiveTool === 'eraser' }]"
+      fixed
+      :hidden="topbarHidden"
+      :title="doc?.title || '未命名文档'"
+      meta="PDF · 批注阅读"
+      center-label="PDF 阅读工具"
+      @back="router.push('/documents')"
     >
-      <div class="pdf-title">
-        <button class="tb-btn pdf-back" title="返回" aria-label="返回" @click="router.push('/documents')">
-          <ArrowLeft />
-        </button>
-        <FileText aria-hidden="true" />
-        <div>
-          <h1>{{ doc?.title || '未命名文档' }}</h1>
-          <span>PDF · 批注阅读</span>
-        </div>
-      </div>
+      <template #back-icon>
+        <ArrowLeft />
+      </template>
 
-      <div class="pdf-actions" role="toolbar" aria-label="PDF 阅读工具">
-        <button :class="['tb-btn', { active: pdfActiveTool === 'pen' }]" title="画笔" aria-label="画笔" @click="pdfSwitchTool('pen')">
+      <template #center>
+      <div class="pdf-actions">
+        <button :class="['rtb-btn', 'tb-btn', { active: pdfActiveTool === 'pen' }]" title="画笔" aria-label="画笔" @click="pdfSwitchTool('pen')">
           <PenLine />
         </button>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'highlighter' }]" title="高亮" aria-label="高亮" @click="pdfSwitchTool('highlighter')">
+        <button :class="['rtb-btn', 'tb-btn', { active: pdfActiveTool === 'highlighter' }]" title="高亮" aria-label="高亮" @click="pdfSwitchTool('highlighter')">
           <Highlighter />
         </button>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'text' }]" title="添加文本" aria-label="添加文本" @click="pdfSwitchTool('text')">
+        <button :class="['rtb-btn', 'tb-btn', { active: pdfActiveTool === 'text' }]" title="添加文本" aria-label="添加文本" @click="pdfSwitchTool('text')">
           <Type />
         </button>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'select' }]" title="选择批注" aria-label="选择批注" @click="pdfSwitchTool('select')">
+        <button :class="['rtb-btn', 'tb-btn', { active: pdfActiveTool === 'select' }]" title="选择批注" aria-label="选择批注" @click="pdfSwitchTool('select')">
           <MousePointer2 />
         </button>
         <div class="shape-tool-wrap">
-          <button :class="['tb-btn', { active: pdfActiveTool === 'shape' }]" title="形状" aria-label="形状" @click="pdfToggleShapeMenu">
+          <button :class="['rtb-btn', 'tb-btn', { active: pdfActiveTool === 'shape' }]" title="形状" aria-label="形状" @click="pdfToggleShapeMenu">
             <Square />
           </button>
           <div v-if="pdfShapeMenuOpen" class="shape-menu">
@@ -783,13 +785,13 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-        <button :class="['tb-btn', { active: pdfActiveTool === 'eraser' }]" title="橡皮擦" aria-label="橡皮擦" @click="pdfSwitchTool('eraser')">
+        <button :class="['rtb-btn', 'tb-btn', { active: pdfActiveTool === 'eraser' }]" title="橡皮擦" aria-label="橡皮擦" @click="pdfSwitchTool('eraser')">
           <Eraser />
         </button>
         <button
           v-if="pdfUsesStyle"
           ref="pdfStyleButtonRef"
-          :class="['tb-btn', { active: pdfStylePanelOpen }]"
+          :class="['rtb-btn', 'tb-btn', { active: pdfStylePanelOpen }]"
           title="样式设置"
           aria-label="样式设置"
           @click="pdfToggleStylePanel"
@@ -885,15 +887,15 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-        <div class="tb-divider"></div>
-        <button class="tb-btn" title="撤销" aria-label="撤销" :disabled="!pdfCanUndo" @click="pdfUndo">
+        <div class="rtb-divider tb-divider"></div>
+        <button class="rtb-btn tb-btn" title="撤销" aria-label="撤销" :disabled="!pdfCanUndo" @click="pdfUndo">
           <Undo2 />
         </button>
-        <button class="tb-btn" title="重做" aria-label="重做" :disabled="!pdfCanRedo" @click="pdfRedo">
+        <button class="rtb-btn tb-btn" title="重做" aria-label="重做" :disabled="!pdfCanRedo" @click="pdfRedo">
           <Redo2 />
         </button>
-        <div class="tb-divider"></div>
-        <button class="tb-btn tb-btn--compact" title="上一页" aria-label="上一页" :disabled="pdfCurPage <= 1" @click="pdfGoPage(-1)">
+        <div class="rtb-divider tb-divider"></div>
+        <button class="rtb-btn tb-btn tb-btn--compact" title="上一页" aria-label="上一页" :disabled="pdfCurPage <= 1" @click="pdfGoPage(-1)">
           <ChevronLeft />
         </button>
         <form v-if="pdfPageEditing" class="page-jump" @submit.prevent="pdfCommitPageEdit">
@@ -911,11 +913,11 @@ onBeforeUnmount(() => {
         <button v-else class="tb-page-label" title="跳转页码" aria-label="跳转页码" @click="pdfBeginPageEdit">
           {{ pdfCurPage }}/{{ pdfPageCount }}
         </button>
-        <button class="tb-btn tb-btn--compact" title="下一页" aria-label="下一页" :disabled="pdfCurPage >= pdfPageCount" @click="pdfGoPage(1)">
+        <button class="rtb-btn tb-btn tb-btn--compact" title="下一页" aria-label="下一页" :disabled="pdfCurPage >= pdfPageCount" @click="pdfGoPage(1)">
           <ChevronRight />
         </button>
-        <div class="tb-divider"></div>
-        <button class="tb-btn" title="缩小" aria-label="缩小" @click="pdfZoomOut">
+        <div class="rtb-divider tb-divider"></div>
+        <button class="rtb-btn tb-btn" title="缩小" aria-label="缩小" @click="pdfZoomOut">
           <ZoomOut />
         </button>
         <div class="tb-popover-wrap">
@@ -935,28 +937,30 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </div>
-        <button class="tb-btn" title="放大" aria-label="放大" @click="pdfZoomIn">
+        <button class="rtb-btn tb-btn" title="放大" aria-label="放大" @click="pdfZoomIn">
           <ZoomIn />
         </button>
       </div>
+      </template>
 
+      <template #side>
       <div class="pdf-side-actions">
-        <button class="tb-status" :title="pdfSaveStatusLabel" aria-label="保存状态">
+        <button class="rtb-status tb-status" :title="pdfSaveStatusLabel" aria-label="保存状态">
           <LoaderCircle v-if="pdfSaving" class="spin" />
           <CheckCircle2 v-else />
           <span>{{ pdfSaveStatusLabel }}</span>
         </button>
-        <button :class="['tb-btn', { active: aiPanelOpen }]" title="AI助手" aria-label="AI助手" @click="toggleAiPanel">
+        <button :class="['rtb-btn', 'tb-btn', { active: aiPanelOpen }]" title="AI助手" aria-label="AI助手" @click="toggleAiPanel">
           <Sparkles />
         </button>
-        <button class="tb-btn" title="搜索文档" aria-label="搜索文档" @click="pdfOpenSearch">
+        <button class="rtb-btn tb-btn" title="搜索文档" aria-label="搜索文档" @click="pdfOpenSearch">
           <Search />
         </button>
-        <button class="tb-btn" title="批注列表" aria-label="批注列表" @click="toggleRight">
+        <button class="rtb-btn tb-btn" title="批注列表" aria-label="批注列表" @click="toggleRight">
           <MessageSquare />
         </button>
         <div class="tb-popover-wrap">
-          <button class="tb-btn" title="更多" aria-label="更多" @click="pdfToggleMoreMenu">
+          <button class="rtb-btn tb-btn" title="更多" aria-label="更多" @click="pdfToggleMoreMenu">
             <MoreHorizontal />
           </button>
           <div v-if="pdfMoreMenuOpen" class="tb-popover tb-more-menu">
@@ -1029,7 +1033,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-    </header>
+      </template>
+    </ReaderTopbar>
 
     <!-- AI Panel Popover (positioned independently) -->
     <div v-if="aiPanelOpen" class="ai-panel-overlay" @click="aiPanelOpen = false"></div>
@@ -1172,22 +1177,10 @@ onBeforeUnmount(() => {
 .panel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.15); z-index: 15; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
 .panel-overlay.show { opacity: 1; pointer-events: auto; }
 
-.reader-topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(190px, 1fr); align-items: center; gap: 0.75rem; width: 100%; padding: 0.7rem 1rem; background: rgba(250,248,245,0.94); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-color); transition: opacity 0.3s, transform 0.3s; font-family: var(--font-ui); }
-.reader-topbar.hidden { opacity: 0; transform: translateY(-100%); pointer-events: none; }
-.pdf-title { display: flex; align-items: center; gap: 0.7rem; min-width: 0; }
-.pdf-title > svg { width: 22px; height: 22px; color: var(--accent); flex: 0 0 auto; }
-.pdf-title h1 { overflow: hidden; margin: 0; color: var(--text-primary); font-family: var(--font-display); font-size: 1.08rem; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-.pdf-title span { display: block; margin-top: 0.1rem; color: var(--text-muted); font-size: 0.72rem; }
 .pdf-actions,
 .pdf-side-actions { display: flex; align-items: center; gap: 0.18rem; min-width: 0; }
 .pdf-actions { justify-content: center; }
 .pdf-side-actions { position: relative; justify-content: flex-end; }
-.tb-btn { width: 32px; height: 32px; min-width: 32px; border: 1px solid transparent; border-radius: 6px; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); transition: background 0.16s, border-color 0.16s, color 0.16s, opacity 0.16s; touch-action: manipulation; }
-.tb-btn:hover { border-color: var(--border-color); background: var(--accent-light); color: var(--accent); }
-.tb-btn.active { border-color: rgba(198, 122, 78, 0.36); background: var(--accent-light); color: var(--accent); }
-.tb-btn.active:hover { border-color: rgba(198, 122, 78, 0.42); background: var(--accent-light); color: var(--accent); }
-.tb-btn:disabled { opacity: 0.38; cursor: not-allowed; }
-.tb-btn:disabled:hover { background: transparent; color: var(--text-secondary); }
 .tb-btn:focus-visible,
 .tb-page-label:focus-visible,
 .tb-zoom-label:focus-visible,
@@ -1195,10 +1188,8 @@ onBeforeUnmount(() => {
 .shape-menu button:focus-visible,
 .tb-popover button:focus-visible,
 .page-jump input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.tb-btn svg { width: 18px; height: 18px; }
 .tb-btn--compact { width: 28px; min-width: 28px; }
 .tb-btn--compact svg { width: 16px; height: 16px; }
-.tb-divider { width: 1px; height: 20px; background: var(--border-color); margin: 0 0.2rem; }
 .tb-label { font-size: 0.7rem; color: var(--text-muted); padding: 0 0.4rem; }
 .tb-page-label,
 .tb-zoom-label,
@@ -1862,7 +1853,6 @@ onBeforeUnmount(() => {
 .doc-body hr { border: none; border-top: 1px solid var(--border-color); margin: 1.5rem 0; }
 
 @media (max-width: 1180px) {
-  .reader-topbar { grid-template-columns: minmax(150px, 0.8fr) auto minmax(160px, 0.8fr); gap: 0.45rem; padding-inline: 0.75rem; }
   .pdf-actions,
   .pdf-side-actions { gap: 0.12rem; }
   .tb-status span { display: none; }
@@ -1872,8 +1862,6 @@ onBeforeUnmount(() => {
 @media (max-width: 1024px) {
   .reader-content { max-width: 100%; padding: 4.5rem 2rem 5rem; }
   .reader-inner { max-width: 100%; }
-  .reader-topbar { grid-template-columns: minmax(130px, 0.7fr) minmax(0, auto) auto; overflow: visible; }
-  .pdf-title h1 { max-width: 18vw; }
   .tb-btn[aria-label="高亮"],
   .tb-btn[aria-label="添加文本"],
   .tb-btn[aria-label="形状"],
@@ -1882,12 +1870,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) {
-  .reader-topbar { grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.35rem; padding: 0.55rem 0.6rem; }
-  .reader-topbar.hidden { transform: translateY(-100%); }
-  .pdf-title { gap: 0; }
-  .pdf-title > svg,
-  .pdf-title h1,
-  .pdf-title span { display: none; }
   .pdf-actions { justify-content: flex-start; overflow: hidden; }
   .pdf-side-actions { gap: 0.08rem; }
   .tb-btn[aria-label="目录"],

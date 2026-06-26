@@ -75,8 +75,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <nav 
+  <nav
     :class="['sidebar', { 'sidebar--collapsed': shouldCollapse }]"
+    aria-label="主功能导航"
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
   >
@@ -98,6 +99,19 @@ onUnmounted(() => {
     <div class="sidebar__avatar" @click="router.push('/settings')">
       {{ userInitial }}
     </div>
+  </nav>
+
+  <nav v-if="!isReaderView" class="mobile-nav" aria-label="移动端功能导航">
+    <a
+      v-for="item in navItems"
+      :key="`mobile-${item.route}`"
+      href="#"
+      :class="['mobile-nav__item', { active: isActive(item.route) }]"
+      @click.prevent="navigateTo(item.route)"
+    >
+      <component :is="iconMap[item.icon]" :size="20" :stroke-width="1.7" />
+      <span>{{ item.name }}</span>
+    </a>
   </nav>
 </template>
 
@@ -193,6 +207,10 @@ onUnmounted(() => {
   transition: opacity 0.3s ease;
 }
 
+.mobile-nav {
+  display: none;
+}
+
 /* Reading mode: collapsed sidebar */
 .sidebar--collapsed {
   width: 4px;
@@ -206,9 +224,65 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 640px) {
   .sidebar {
     display: none;
+  }
+
+  .mobile-nav {
+    position: fixed;
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    z-index: 120;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.25rem;
+    min-height: 62px;
+    padding: 0.38rem;
+    background: rgba(250, 248, 245, 0.96);
+    border: 1px solid rgba(228, 217, 206, 0.92);
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(61, 46, 36, 0.12);
+    backdrop-filter: blur(14px);
+  }
+
+  .mobile-nav__item {
+    min-width: 0;
+    min-height: 50px;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.18rem;
+    color: var(--text-muted);
+    font-family: var(--font-ui);
+    font-size: 0.68rem;
+    line-height: 1.1;
+    text-decoration: none;
+    touch-action: manipulation;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .mobile-nav__item svg {
+    flex: 0 0 auto;
+  }
+
+  .mobile-nav__item span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-nav__item.active {
+    color: var(--accent);
+    background: var(--accent-light);
+  }
+
+  .mobile-nav__item:hover {
+    color: var(--accent);
   }
 }
 </style>

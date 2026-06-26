@@ -161,14 +161,14 @@ func extractPDFText(data []byte) string {
 				j++
 			}
 			if depth == 0 {
-				// Extract the text between the parentheses, handling escapes
+				// Extract the text between the parentheses, handling PDF escapes
 				text := string(data[i+1 : j-1])
+				text = strings.ReplaceAll(text, "\\\\", "\\")
+				text = strings.ReplaceAll(text, "\\(", "(")
+				text = strings.ReplaceAll(text, "\\)", ")")
 				text = strings.ReplaceAll(text, "\\n", "\n")
 				text = strings.ReplaceAll(text, "\\r", "\r")
 				text = strings.ReplaceAll(text, "\\t", "\t")
-				text = strings.ReplaceAll(text, "\\(", "(")
-				text = strings.ReplaceAll(text, "\\)", ")")
-				text = strings.ReplaceAll(text, "\\\\", "\\")
 				if strings.TrimSpace(text) != "" {
 					if buf.Len() > 0 {
 						buf.WriteByte(' ')
@@ -186,7 +186,7 @@ func extractPDFText(data []byte) string {
 }
 
 func (s *DocumentService) ensureParsedContent(doc *models.Document) {
-	if doc == nil || doc.ParsedStatus == "done" || !shouldParseContent(doc.FileType) || doc.StoragePath == "" {
+	if doc == nil || doc.ParsedStatus == "done" || doc.ParsedStatus == "failed" || !shouldParseContent(doc.FileType) || doc.StoragePath == "" {
 		return
 	}
 	savePath := filepath.Join(s.uploadDir, doc.StoragePath)
@@ -360,7 +360,6 @@ func (s *DocumentService) GetDetail(docID, userID uint) (*DocumentDetailResponse
 	if doc.UserID != userID {
 		return nil, errors.New("文档不存在")
 	}
-	s.ensureParsedContent(doc)
 	return &DocumentDetailResponse{
 		ID: doc.ID, Title: doc.Title, FileName: doc.FileName,
 		FileType: doc.FileType, MimeType: doc.MimeType, FileSize: doc.FileSize,

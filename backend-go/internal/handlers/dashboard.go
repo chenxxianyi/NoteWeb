@@ -3,15 +3,19 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/chenxxianyi/NoteWeb/backend-go/internal/models"
 	"github.com/gin-gonic/gin"
-	"github.com/chenxxianyi/NoteWeb/backend-go/internal/service"
 )
 
-type DashboardHandler struct {
-	svc *service.DashboardService
+type DashboardHandlerService interface {
+	GetSummary(userID uint) (*models.DashboardSummary, error)
 }
 
-func NewDashboardHandler(svc *service.DashboardService) *DashboardHandler {
+type DashboardHandler struct {
+	svc DashboardHandlerService
+}
+
+func NewDashboardHandler(svc DashboardHandlerService) *DashboardHandler {
 	return &DashboardHandler{svc: svc}
 }
 
