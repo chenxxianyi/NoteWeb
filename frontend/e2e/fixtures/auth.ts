@@ -12,8 +12,9 @@ export const test = base.extend<AuthFixtures>({
   },
 
   authedPage: async ({ browser, user }, use) => {
+    const baseURL = process.env.BASE_URL || 'http://localhost:5177'
     const ctx = await browser.newContext({
-      baseURL: process.env.BASE_URL || 'http://127.0.0.1:5174',
+      baseURL,
     })
     const page = await ctx.newPage()
 

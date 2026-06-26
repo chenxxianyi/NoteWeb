@@ -73,7 +73,7 @@ func shouldParseAsText(extOrType string) bool {
 
 func shouldParseContent(extOrType string) bool {
 	switch strings.TrimPrefix(strings.ToLower(extOrType), ".") {
-	case "md", "txt", "docx":
+	case "md", "txt", "docx", "pdf":
 		return true
 	default:
 		return false
@@ -94,6 +94,18 @@ func parseStoredContent(fileType, path string) (string, int, int, error) {
 		content := textFileContent(data)
 		pageCount, wordCount := textStats(content)
 		return content, pageCount, wordCount, nil
+	case "pdf":
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", 0, 0, fmt.Errorf("PDF 读取失败: %w", err)
+		}
+		content := extractPDFText(data)
+		pageCount := strings.Count(content, "\f") + 1
+		wordCount := len(strings.Fields(content))
+		if wordCount == 0 {
+			return "", 0, 0, errors.New("当前 PDF 不支持文本提取")
+		}
+		return content, pageCount, wordCount, nil
 	case "docx":
 		content, err := parseDocxContent(path)
 		if err != nil {
@@ -104,6 +116,73 @@ func parseStoredContent(fileType, path string) (string, int, int, error) {
 	default:
 		return "", 0, 0, errors.New("当前文档不支持内容解析")
 	}
+}
+
+// extractPDFText extracts readable text from a PDF by finding content
+// between parentheses in PDF stream objects — a simple heuristic that works
+// for most text-based PDFs.
+func extractPDFText(data []byte) string {
+	var buf strings.Builder
+	inStream := false
+
+	// Scan through the raw PDF content
+	i := 0
+	for i < len(data) {
+		// Track stream objects
+		if bytes.HasPrefix(data[i:], []byte("stream\n")) || bytes.HasPrefix(data[i:], []byte("stream\r")) {
+			inStream = true
+			i += 7
+			continue
+		}
+		if inStream && bytes.HasPrefix(data[i:], []byte("endstream")) {
+			inStream = false
+			i += 9
+			continue
+		}
+		if !inStream {
+			i++
+			continue
+		}
+
+		// Inside a stream — look for parenthesized text: (Hello World)
+		if data[i] == '(' {
+			depth := 1
+			j := i + 1
+			for j < len(data) && depth > 0 {
+				if data[j] == '\\' {
+					j += 2 // skip escaped char
+					continue
+				}
+				if data[j] == '(' {
+					depth++
+				} else if data[j] == ')' {
+					depth--
+				}
+				j++
+			}
+			if depth == 0 {
+				// Extract the text between the parentheses, handling escapes
+				text := string(data[i+1 : j-1])
+				text = strings.ReplaceAll(text, "\\n", "\n")
+				text = strings.ReplaceAll(text, "\\r", "\r")
+				text = strings.ReplaceAll(text, "\\t", "\t")
+				text = strings.ReplaceAll(text, "\\(", "(")
+				text = strings.ReplaceAll(text, "\\)", ")")
+				text = strings.ReplaceAll(text, "\\\\", "\\")
+				if strings.TrimSpace(text) != "" {
+					if buf.Len() > 0 {
+						buf.WriteByte(' ')
+					}
+					buf.WriteString(text)
+				}
+				i = j
+				continue
+			}
+		}
+		i++
+	}
+
+	return buf.String()
 }
 
 func (s *DocumentService) ensureParsedContent(doc *models.Document) {
