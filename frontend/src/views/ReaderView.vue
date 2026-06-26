@@ -735,27 +735,23 @@ onBeforeUnmount(() => {
     <!-- Overlay -->
     <div :class="['panel-overlay', { show: panelRightOpen }]" @click="closePanels"></div>
 
-    <!-- Floating Top Bar (PDF only; text documents use their editor toolbar) -->
-    <div
+    <!-- PDF uses the same top navigation format as editable documents. -->
+    <header
       v-if="doc?.file_type === 'pdf'"
       :class="['reader-topbar', { hidden: topbarHidden, 'eraser-active': pdfActiveTool === 'eraser' }]"
     >
-      <button class="tb-btn" title="返回" aria-label="返回" @click="router.push('/documents')">
-        <ArrowLeft />
-      </button>
-      <div class="tb-divider"></div>
-      <!-- AI Assistant button (all document types) -->
-      <button :class="['tb-btn', { active: aiPanelOpen }]" title="AI助手" aria-label="AI助手" @click="toggleAiPanel">
-        <Sparkles />
-      </button>
-      <!-- Annotations button (PDF only) -->
-      <button v-if="doc?.file_type === 'pdf'" class="tb-btn" title="批注列表" aria-label="批注列表" @click="toggleRight">
-        <MessageSquare />
-      </button>
+      <div class="pdf-title">
+        <button class="tb-btn pdf-back" title="返回" aria-label="返回" @click="router.push('/documents')">
+          <ArrowLeft />
+        </button>
+        <FileText aria-hidden="true" />
+        <div>
+          <h1>{{ doc?.title || '未命名文档' }}</h1>
+          <span>PDF · 批注阅读</span>
+        </div>
+      </div>
 
-      <!-- PDF drawing tools -->
-      <template v-if="doc?.file_type === 'pdf'">
-        <div class="tb-divider"></div>
+      <div class="pdf-actions" role="toolbar" aria-label="PDF 阅读工具">
         <button :class="['tb-btn', { active: pdfActiveTool === 'pen' }]" title="画笔" aria-label="画笔" @click="pdfSwitchTool('pen')">
           <PenLine />
         </button>
@@ -942,11 +938,22 @@ onBeforeUnmount(() => {
         <button class="tb-btn" title="放大" aria-label="放大" @click="pdfZoomIn">
           <ZoomIn />
         </button>
-        <div class="tb-divider"></div>
+      </div>
+
+      <div class="pdf-side-actions">
         <button class="tb-status" :title="pdfSaveStatusLabel" aria-label="保存状态">
           <LoaderCircle v-if="pdfSaving" class="spin" />
           <CheckCircle2 v-else />
           <span>{{ pdfSaveStatusLabel }}</span>
+        </button>
+        <button :class="['tb-btn', { active: aiPanelOpen }]" title="AI助手" aria-label="AI助手" @click="toggleAiPanel">
+          <Sparkles />
+        </button>
+        <button class="tb-btn" title="搜索文档" aria-label="搜索文档" @click="pdfOpenSearch">
+          <Search />
+        </button>
+        <button class="tb-btn" title="批注列表" aria-label="批注列表" @click="toggleRight">
+          <MessageSquare />
         </button>
         <div class="tb-popover-wrap">
           <button class="tb-btn" title="更多" aria-label="更多" @click="pdfToggleMoreMenu">
@@ -1021,8 +1028,8 @@ onBeforeUnmount(() => {
             <button type="button" @click="toggleRight">批注侧栏</button>
           </div>
         </div>
-      </template>
-    </div>
+      </div>
+    </header>
 
     <!-- AI Panel Popover (positioned independently) -->
     <div v-if="aiPanelOpen" class="ai-panel-overlay" @click="aiPanelOpen = false"></div>
@@ -1165,12 +1172,20 @@ onBeforeUnmount(() => {
 .panel-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.15); z-index: 15; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
 .panel-overlay.show { opacity: 1; pointer-events: auto; }
 
-.reader-topbar { position: fixed; top: 0.75rem; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 0.28rem; max-width: calc(100vw - 1.5rem); padding: 0.35rem 0.6rem; background: rgba(250,248,245,0.94); backdrop-filter: blur(10px); border: 1px solid var(--border-color); border-radius: 24px; box-shadow: 0 2px 12px rgba(61,46,36,0.08); transition: opacity 0.3s, transform 0.3s; font-family: var(--font-ui); }
-.reader-topbar.hidden { opacity: 0; transform: translateX(-50%) translateY(-10px); pointer-events: none; }
-.tb-btn { width: 34px; height: 34px; min-width: 34px; border: none; border-radius: 50%; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); transition: background 0.16s, color 0.16s, opacity 0.16s; touch-action: manipulation; }
-.tb-btn:hover { background: var(--accent-light); color: var(--accent); }
-.tb-btn.active { background: var(--accent); color: #fff; }
-.tb-btn.active:hover { background: var(--accent); opacity: 0.85; }
+.reader-topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; display: grid; grid-template-columns: minmax(180px, 1fr) auto minmax(190px, 1fr); align-items: center; gap: 0.75rem; width: 100%; padding: 0.7rem 1rem; background: rgba(250,248,245,0.94); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-color); transition: opacity 0.3s, transform 0.3s; font-family: var(--font-ui); }
+.reader-topbar.hidden { opacity: 0; transform: translateY(-100%); pointer-events: none; }
+.pdf-title { display: flex; align-items: center; gap: 0.7rem; min-width: 0; }
+.pdf-title > svg { width: 22px; height: 22px; color: var(--accent); flex: 0 0 auto; }
+.pdf-title h1 { overflow: hidden; margin: 0; color: var(--text-primary); font-family: var(--font-display); font-size: 1.08rem; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.pdf-title span { display: block; margin-top: 0.1rem; color: var(--text-muted); font-size: 0.72rem; }
+.pdf-actions,
+.pdf-side-actions { display: flex; align-items: center; gap: 0.18rem; min-width: 0; }
+.pdf-actions { justify-content: center; }
+.pdf-side-actions { position: relative; justify-content: flex-end; }
+.tb-btn { width: 32px; height: 32px; min-width: 32px; border: 1px solid transparent; border-radius: 6px; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); transition: background 0.16s, border-color 0.16s, color 0.16s, opacity 0.16s; touch-action: manipulation; }
+.tb-btn:hover { border-color: var(--border-color); background: var(--accent-light); color: var(--accent); }
+.tb-btn.active { border-color: rgba(198, 122, 78, 0.36); background: var(--accent-light); color: var(--accent); }
+.tb-btn.active:hover { border-color: rgba(198, 122, 78, 0.42); background: var(--accent-light); color: var(--accent); }
 .tb-btn:disabled { opacity: 0.38; cursor: not-allowed; }
 .tb-btn:disabled:hover { background: transparent; color: var(--text-secondary); }
 .tb-btn:focus-visible,
@@ -1187,14 +1202,14 @@ onBeforeUnmount(() => {
 .tb-label { font-size: 0.7rem; color: var(--text-muted); padding: 0 0.4rem; }
 .tb-page-label,
 .tb-zoom-label,
-.tb-status { height: 34px; border: none; border-radius: 17px; background: transparent; color: var(--text-secondary); font-family: var(--font-ui); font-size: 0.76rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; cursor: pointer; transition: background 0.16s, color 0.16s; white-space: nowrap; touch-action: manipulation; }
+.tb-status { height: 32px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font-family: var(--font-ui); font-size: 0.76rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; cursor: pointer; transition: background 0.16s, border-color 0.16s, color 0.16s; white-space: nowrap; touch-action: manipulation; }
 .tb-page-label { min-width: 58px; padding: 0 0.42rem; }
 .tb-zoom-label { min-width: 54px; padding: 0 0.46rem; color: var(--text-muted); }
 .tb-status { min-width: 78px; padding: 0 0.55rem; color: var(--text-muted); cursor: default; }
 .tb-status svg { width: 15px; height: 15px; }
 .tb-page-label:hover,
-.tb-zoom-label:hover { background: var(--accent-light); color: var(--accent); }
-.page-jump { height: 34px; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0 0.45rem; border-radius: 17px; background: rgba(255,255,255,0.72); border: 1px solid var(--border-color); color: var(--text-muted); font-family: var(--font-ui); font-size: 0.75rem; }
+.tb-zoom-label:hover { border-color: var(--border-color); background: var(--accent-light); color: var(--accent); }
+.page-jump { height: 32px; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0 0.45rem; border-radius: 6px; background: rgba(255,255,255,0.72); border: 1px solid var(--border-color); color: var(--text-muted); font-family: var(--font-ui); font-size: 0.75rem; }
 .page-jump input { width: 42px; border: none; background: transparent; color: var(--text-primary); font: inherit; text-align: center; outline: none; }
 .tb-popover-wrap { position: relative; display: inline-flex; align-items: center; }
 .tb-popover { position: absolute; top: calc(100% + 0.65rem); left: 50%; transform: translateX(-50%); z-index: 35; padding: 0.55rem; background: rgba(250,248,245,0.98); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 8px 24px rgba(61,46,36,0.16); font-family: var(--font-ui); }
@@ -1357,7 +1372,7 @@ onBeforeUnmount(() => {
 /* AI Panel Styles */
 .tb-ai-panel {
   position: fixed;
-  top: 3.5rem;
+  top: 4.25rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 36;
@@ -1847,16 +1862,18 @@ onBeforeUnmount(() => {
 .doc-body hr { border: none; border-top: 1px solid var(--border-color); margin: 1.5rem 0; }
 
 @media (max-width: 1180px) {
-  .reader-topbar { gap: 0.18rem; padding-inline: 0.45rem; }
+  .reader-topbar { grid-template-columns: minmax(150px, 0.8fr) auto minmax(160px, 0.8fr); gap: 0.45rem; padding-inline: 0.75rem; }
+  .pdf-actions,
+  .pdf-side-actions { gap: 0.12rem; }
   .tb-status span { display: none; }
-  .tb-status { min-width: 34px; padding: 0; }
+  .tb-status { min-width: 32px; padding: 0; }
 }
 
 @media (max-width: 1024px) {
   .reader-content { max-width: 100%; padding: 4.5rem 2rem 5rem; }
   .reader-inner { max-width: 100%; }
-  .reader-topbar { top: 0.5rem; max-width: calc(100vw - 1rem); overflow: visible; }
-  .tb-divider:nth-of-type(2),
+  .reader-topbar { grid-template-columns: minmax(130px, 0.7fr) minmax(0, auto) auto; overflow: visible; }
+  .pdf-title h1 { max-width: 18vw; }
   .tb-btn[aria-label="高亮"],
   .tb-btn[aria-label="添加文本"],
   .tb-btn[aria-label="形状"],
@@ -1865,10 +1882,14 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) {
-  .reader-topbar { left: 0.5rem; right: 0.5rem; transform: none; justify-content: space-between; border-radius: 22px; }
-  .reader-topbar.hidden { transform: translateY(-10px); }
-  .tb-btn { width: 38px; height: 38px; min-width: 38px; }
-  .tb-btn svg { width: 19px; height: 19px; }
+  .reader-topbar { grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.35rem; padding: 0.55rem 0.6rem; }
+  .reader-topbar.hidden { transform: translateY(-100%); }
+  .pdf-title { gap: 0; }
+  .pdf-title > svg,
+  .pdf-title h1,
+  .pdf-title span { display: none; }
+  .pdf-actions { justify-content: flex-start; overflow: hidden; }
+  .pdf-side-actions { gap: 0.08rem; }
   .tb-btn[aria-label="目录"],
   .tb-btn[aria-label="选择批注"],
   .tb-btn[aria-label="橡皮擦"],
@@ -1877,10 +1898,10 @@ onBeforeUnmount(() => {
   .tb-btn[aria-label="放大"],
   .tb-zoom-label { display: none; }
   .tb-page-label { min-width: 64px; }
-  .tb-popover { position: fixed; top: 3.8rem; left: 0.75rem; right: 0.75rem; transform: none; width: auto; }
+  .tb-popover { position: fixed; top: 3.6rem; left: 0.75rem; right: 0.75rem; transform: none; width: auto; }
   .tb-ai-panel,
-  .tb-ai-panel--editor { left: 0.75rem; right: 0.75rem; transform: none; width: auto; }
-  .shape-menu { position: fixed; top: 3.8rem; left: 0.75rem; right: 0.75rem; transform: none; grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: 0; }
+  .tb-ai-panel--editor { top: 4rem; left: 0.75rem; right: 0.75rem; transform: none; width: auto; }
+  .shape-menu { position: fixed; top: 3.6rem; left: 0.75rem; right: 0.75rem; transform: none; grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: 0; }
   .shape-menu button { justify-content: center; }
   .shape-menu button span { display: none; }
 }

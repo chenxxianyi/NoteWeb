@@ -17,6 +17,15 @@ export const useAIConversationStore = defineStore('aiConversation', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  const STREAM_DISPLAY_INTERVAL_MS = 24
+
+  function getDisplayChunkSize(queuedLength: number) {
+    if (queuedLength > 160) return 12
+    if (queuedLength > 80) return 8
+    if (queuedLength > 24) return 4
+    return 2
+  }
+
   // Actions
   function pushMessage(role: Message['role'], content: string) {
     messages.value.push({ role, content })
@@ -39,6 +48,75 @@ export const useAIConversationStore = defineStore('aiConversation', () => {
     }
   }
 
+  function createMessageDisplayStream(index: number) {
+    let queued = ''
+    let timer: ReturnType<typeof window.setTimeout> | null = null
+    let cancelled = false
+    const idleResolvers: Array<() => void> = []
+
+    const clearTimer = () => {
+      if (timer === null) return
+      window.clearTimeout(timer)
+      timer = null
+    }
+
+    const resolveIdle = () => {
+      if (queued || timer !== null) return
+      while (idleResolvers.length > 0) {
+        idleResolvers.shift()?.()
+      }
+    }
+
+    const schedule = () => {
+      if (timer !== null || cancelled) return
+      timer = window.setTimeout(tick, STREAM_DISPLAY_INTERVAL_MS)
+    }
+
+    const tick = () => {
+      timer = null
+
+      if (cancelled) {
+        queued = ''
+        resolveIdle()
+        return
+      }
+
+      if (queued) {
+        const chunkSize = Math.min(queued.length, getDisplayChunkSize(queued.length))
+        const chunk = queued.slice(0, chunkSize)
+        queued = queued.slice(chunkSize)
+        appendMessageDelta(index, chunk)
+      }
+
+      if (queued) {
+        schedule()
+      } else {
+        resolveIdle()
+      }
+    }
+
+    return {
+      push(delta: string) {
+        if (!delta || cancelled) return
+        queued += delta
+        schedule()
+      },
+      finish() {
+        if (!queued && timer === null) return Promise.resolve()
+        return new Promise<void>((resolve) => {
+          idleResolvers.push(resolve)
+          schedule()
+        })
+      },
+      cancel() {
+        cancelled = true
+        queued = ''
+        clearTimer()
+        resolveIdle()
+      },
+    }
+  }
+
   /**
    * 发送聊天消息
    */
@@ -50,24 +128,28 @@ export const useAIConversationStore = defineStore('aiConversation', () => {
     loading.value = true
     error.value = null
     let assistantIndex = -1
+    let displayStream: ReturnType<typeof createMessageDisplayStream> | null = null
 
     try {
       pushMessage('user', question)
       assistantIndex = pushMessage('assistant', '')
+      displayStream = createMessageDisplayStream(assistantIndex)
 
       const done = await aiApi.chatStream({
         document_id: documentId || undefined,
         question,
         conversation_type: type,
       }, {
-        onDelta: (content) => appendMessageDelta(assistantIndex, content),
+        onDelta: (content) => displayStream?.push(content),
       })
+      await displayStream.finish()
 
       return {
         answer: messages.value[assistantIndex]?.content || '',
         conversation_id: done.conversation_id || 0,
       }
     } catch (e: any) {
+      displayStream?.cancel()
       error.value = e?.response?.data?.detail || e.message || '聊天失败'
       removeEmptyAssistant(assistantIndex)
       return null
@@ -83,18 +165,22 @@ export const useAIConversationStore = defineStore('aiConversation', () => {
     loading.value = true
     error.value = null
     let assistantIndex = -1
+    let displayStream: ReturnType<typeof createMessageDisplayStream> | null = null
 
     try {
       assistantIndex = pushMessage('assistant', '文档总结\n\n')
+      displayStream = createMessageDisplayStream(assistantIndex)
       const done = await aiApi.getSummaryStream(documentId, {
-        onDelta: (content) => appendMessageDelta(assistantIndex, content),
+        onDelta: (content) => displayStream?.push(content),
       })
+      await displayStream.finish()
 
       return {
         summary: messages.value[assistantIndex]?.content.replace(/^文档总结\n\n/, '') || '',
         conversation_id: done.conversation_id || 0,
       }
     } catch (e: any) {
+      displayStream?.cancel()
       error.value = e?.response?.data?.detail || e.message || '获取总结失败'
       removeEmptyAssistant(assistantIndex)
       return null
@@ -110,14 +196,17 @@ export const useAIConversationStore = defineStore('aiConversation', () => {
     loading.value = true
     error.value = null
     let assistantIndex = -1
+    let displayStream: ReturnType<typeof createMessageDisplayStream> | null = null
 
     try {
       pushMessage('user', query)
       assistantIndex = pushMessage('assistant', '')
+      displayStream = createMessageDisplayStream(assistantIndex)
 
       const done = await aiApi.searchStream({ query }, {
-        onDelta: (content) => appendMessageDelta(assistantIndex, content),
+        onDelta: (content) => displayStream?.push(content),
       })
+      await displayStream.finish()
 
       return {
         answer: messages.value[assistantIndex]?.content || '',
@@ -125,6 +214,7 @@ export const useAIConversationStore = defineStore('aiConversation', () => {
         conversation_id: done.conversation_id || 0,
       }
     } catch (e: any) {
+      displayStream?.cancel()
       error.value = e?.response?.data?.detail || e.message || '搜索失败'
       removeEmptyAssistant(assistantIndex)
       return null
