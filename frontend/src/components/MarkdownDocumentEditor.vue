@@ -29,6 +29,7 @@ import {
   Redo2,
   Save,
   Search,
+  Sparkles,
   Strikethrough,
   UploadCloud,
   Undo2,
@@ -45,14 +46,18 @@ type HeadingItem = {
   text: string
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   documentId: number
   title: string
   content: string
   fileType: string
-}>()
+  aiActive?: boolean
+}>(), {
+  aiActive: false,
+})
 const emit = defineEmits<{
   back: []
+  toggleAi: []
 }>()
 
 const documentStore = useDocumentStore()
@@ -598,6 +603,15 @@ function findMatch(direction: 1 | -1) {
           <Save v-else />
           <span>{{ saveLabel }}</span>
         </button>
+        <button
+          type="button"
+          :class="{ active: aiActive }"
+          title="AI助手"
+          aria-label="AI助手"
+          @click="emit('toggleAi')"
+        >
+          <Sparkles />
+        </button>
         <button type="button" title="搜索" aria-label="搜索" @click="searchOpen = !searchOpen"><Search /></button>
         <button type="button" title="大纲" aria-label="切换大纲" @click="outlineOpen = !outlineOpen">
           <PanelRightClose v-if="outlineOpen" />
@@ -758,7 +772,8 @@ function findMatch(direction: 1 | -1) {
   outline-offset: 2px;
 }
 
-.mde-actions button.active {
+.mde-actions button.active,
+.mde-side-actions button.active {
   border-color: rgba(198, 122, 78, 0.36);
   background: var(--accent-light);
   color: var(--accent);

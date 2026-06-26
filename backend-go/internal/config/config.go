@@ -23,6 +23,10 @@ type Config struct {
 	MySQLDatabase string
 
 	MaxUploadSize int64
+
+	// AI Provider配置
+	DeepSeekAPIKey  string // 默认DeepSeek API Key(可选,用户可覆盖)
+	DeepSeekBaseURL string // DeepSeek API地址
 }
 
 func Load() *Config {
@@ -43,6 +47,9 @@ func Load() *Config {
 		MySQLDatabase: getEnv("MYSQL_DATABASE", "noteweb"),
 
 		MaxUploadSize: getEnvInt64("MAX_UPLOAD_SIZE", 50*1024*1024),
+
+		DeepSeekAPIKey:  getEnv("DEEPSEEK_API_KEY", ""),
+		DeepSeekBaseURL: getEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
 	}
 	return cfg
 }

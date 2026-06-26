@@ -24,7 +24,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("数据库连接失败: %v", err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.Document{}, &models.Annotation{}, &models.Note{}, &models.UserSettings{}); err != nil {
+	if err := db.AutoMigrate(
+		&models.User{}, &models.Document{}, &models.Annotation{}, &models.Note{},
+		&models.UserSettings{}, &models.AIConversation{}, &models.AIProviderConfig{},
+	); err != nil {
 		log.Fatalf("数据库迁移失败: %v", err)
 	}
 	if err := db.Migrator().AlterColumn(&models.Document{}, "MimeType"); err != nil {
@@ -37,6 +40,8 @@ func main() {
 	docRepo := repository.NewDocumentRepo(db)
 	annRepo := repository.NewAnnotationRepo(db)
 	noteRepo := repository.NewNoteRepo(db)
+	aiConvRepo := repository.NewAIConversationRepo(db)
+	aiConfigRepo := repository.NewAIProviderConfigRepo(db)
 
 	// Services
 	authSvc := service.NewAuthService(userRepo, cfg.SecretKey, cfg.AccessTokenExpireMinutes)
@@ -44,7 +49,7 @@ func main() {
 	docSvc := service.NewDocumentService(docRepo, userRepo, "./uploads")
 	annSvc := service.NewAnnotationService(annRepo)
 	noteSvc := service.NewNoteService(noteRepo, docRepo)
-	aiSvc := service.NewAIService()
+	aiSvc := service.NewAIService(aiConvRepo, aiConfigRepo, docRepo, cfg)
 	dashboardSvc := service.NewDashboardService(docRepo, annRepo, noteRepo)
 
 	// Handlers
@@ -53,7 +58,7 @@ func main() {
 	docH := handlers.NewDocumentHandler(docSvc)
 	annH := handlers.NewAnnotationHandler(annSvc)
 	noteH := handlers.NewNoteHandler(noteSvc)
-	aiH := handlers.NewAIHandler(aiSvc)
+	aiH := handlers.NewAIHandler(aiSvc, aiConfigRepo)
 	dashboardH := handlers.NewDashboardHandler(dashboardSvc)
 
 	// Router
@@ -65,13 +70,6 @@ func main() {
 	auth.POST("/register", authH.Register)
 	auth.POST("/login", authH.Login)
 	auth.GET("/avatar/:filename", authH.GetAvatar)
-
-	// AI (public mock)
-	ai := api.Group("/ai")
-	ai.GET("/documents/:id/summary", aiH.Summary)
-	ai.POST("/explain", aiH.Explain)
-	ai.POST("/translate", aiH.Translate)
-	ai.POST("/chat", aiH.Chat)
 	api.GET("/documents/:id/assets/:name", docH.GetAsset)
 
 	// Protected
@@ -88,6 +86,18 @@ func main() {
 		protected.PATCH("/settings", userSettingsH.Update)
 
 		protected.GET("/dashboard/summary", dashboardH.GetSummary)
+
+		// AI routes
+		protected.GET("/ai/documents/:id/summary", aiH.GetSummary)
+		protected.POST("/ai/documents/:id/summary/stream", aiH.GetSummaryStream)
+		protected.POST("/ai/chat", aiH.Chat)
+		protected.POST("/ai/chat/stream", aiH.ChatStream)
+		protected.POST("/ai/search", aiH.Search)
+		protected.POST("/ai/search/stream", aiH.SearchStream)
+		protected.GET("/ai/conversations", aiH.GetConversations)
+		protected.DELETE("/ai/conversations/:id", aiH.DeleteConversation)
+		protected.GET("/ai/provider-config", aiH.GetProviderConfig)
+		protected.PUT("/ai/provider-config", aiH.UpdateProviderConfig)
 
 		docs := protected.Group("/documents")
 		docs.GET("", docH.List)

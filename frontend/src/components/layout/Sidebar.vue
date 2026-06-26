@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/authStore'
-import { computed } from 'vue'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import {
   LayoutDashboard,
   FileText,
@@ -12,6 +13,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const settingsStore = useSettingsStore()
 
 const iconMap: Record<string, any> = {
   'layout-dashboard': LayoutDashboard,
@@ -39,10 +41,45 @@ function navigateTo(path: string) {
 const userInitial = computed(() => {
   return authStore.user?.username?.charAt(0).toUpperCase() || 'M'
 })
+
+// Reading mode: auto-collapse sidebar in reader view
+const isCollapsed = ref(false)
+const isHovered = ref(false)
+
+const isReaderView = computed(() => {
+  return route.path.startsWith('/reader/')
+})
+
+const shouldCollapse = computed(() => {
+  return settingsStore.readingMode && isReaderView.value && !isHovered.value
+})
+
+function handleMouseEnter() {
+  isHovered.value = true
+}
+
+function handleMouseLeave() {
+  isHovered.value = false
+}
+
+// Check reading mode on route change
+onMounted(() => {
+  if (settingsStore.readingMode && isReaderView.value) {
+    isCollapsed.value = true
+  }
+})
+
+onUnmounted(() => {
+  isCollapsed.value = false
+})
 </script>
 
 <template>
-  <nav class="sidebar">
+  <nav 
+    :class="['sidebar', { 'sidebar--collapsed': shouldCollapse }]"
+    @mouseenter="handleMouseEnter"
+    @mouseleave="handleMouseLeave"
+  >
     <a href="#/" class="sidebar__logo" @click.prevent="router.push('/dashboard')">
       N
     </a>
@@ -78,20 +115,28 @@ const userInitial = computed(() => {
   left: 0;
   bottom: 0;
   z-index: 100;
+  transition: width 0.3s ease, transform 0.3s ease;
+  overflow: hidden;
 }
+
 .sidebar__logo {
   font-family: var(--font-display);
   font-size: 1.3rem;
   color: var(--accent);
   margin-bottom: 2rem;
   text-decoration: none;
+  transition: opacity 0.3s ease;
+  white-space: nowrap;
+  overflow: hidden;
 }
+
 .sidebar__nav {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
   flex: 1;
 }
+
 .sidebar__item {
   width: 44px;
   height: 44px;
@@ -104,11 +149,13 @@ const userInitial = computed(() => {
   transition: all 0.15s;
   position: relative;
 }
+
 .sidebar__item:hover,
 .sidebar__item.active {
   color: var(--accent);
   background: var(--accent-light);
 }
+
 .sidebar__item .tooltip {
   position: absolute;
   left: calc(100% + 10px);
@@ -125,9 +172,11 @@ const userInitial = computed(() => {
   pointer-events: none;
   transition: opacity 0.15s;
 }
+
 .sidebar__item:hover .tooltip {
   opacity: 1;
 }
+
 .sidebar__avatar {
   width: 36px;
   height: 36px;
@@ -141,6 +190,20 @@ const userInitial = computed(() => {
   font-family: var(--font-ui);
   font-size: 0.8rem;
   cursor: pointer;
+  transition: opacity 0.3s ease;
+}
+
+/* Reading mode: collapsed sidebar */
+.sidebar--collapsed {
+  width: 4px;
+  min-width: 4px;
+}
+
+.sidebar--collapsed .sidebar__logo,
+.sidebar--collapsed .sidebar__nav,
+.sidebar--collapsed .sidebar__avatar {
+  opacity: 0;
+  pointer-events: none;
 }
 
 @media (max-width: 520px) {

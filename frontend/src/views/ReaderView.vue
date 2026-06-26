@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
+import { ref, computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDocumentStore } from '../stores/documentStore'
 import { useAnnotationStore } from '../stores/annotationStore'
+import { useAIConversationStore } from '../stores/aiConversationStore'
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,7 +15,6 @@ import {
   Eraser,
   FileText,
   Highlighter,
-  List,
   LoaderCircle,
   Maximize,
   MessageSquare,
@@ -25,9 +25,11 @@ import {
   PenLine,
   Redo2,
   Search,
+  Send,
   Settings,
   Share2,
   Square,
+  Sparkles,
   Type,
   Undo2,
   ZoomIn,
@@ -43,6 +45,7 @@ const route = useRoute()
 const router = useRouter()
 const documentStore = useDocumentStore()
 const annotationStore = useAnnotationStore()
+const aiStore = useAIConversationStore()
 
 const docId = computed(() => Number(route.params.documentId))
 // Capture docId at mount time so unmount still has a valid id (route param may be NaN after navigation)
@@ -50,9 +53,18 @@ let capturedDocId = 0
 const panelLeftOpen = ref(false)
 const panelRightOpen = ref(false)
 const topbarHidden = ref(false)
-const showAnnoTab = ref(true)
 const loading = ref(true)
 let lastScroll = 0
+
+// AI Assistant state
+const aiInput = ref('')
+const aiMode = ref<'chat' | 'search'>('chat')
+const aiInputPlaceholder = computed(() => {
+  if (aiMode.value === 'search') return '联网搜索...'
+  return '向 AI 提问...'
+})
+const messages = computed(() => aiStore.messages)
+const aiMessagesRef = ref<HTMLElement | null>(null)
 
 // PDF drawing state
 const pdfRef = ref<InstanceType<typeof PDFViewer> | null>(null)
@@ -66,6 +78,7 @@ const pdfZoomMenuOpen = ref(false)
 const pdfMoreMenuOpen = ref(false)
 const pdfSearchOpen = ref(false)
 const pdfSettingsOpen = ref(false)
+const aiPanelOpen = ref(false)
 const pdfSearchQuery = ref('')
 const pdfSearchLoading = ref(false)
 const pdfSearchResults = ref<Array<{ page: number; excerpt: string }>>([])
@@ -347,6 +360,18 @@ function setReaderToolbarAutoHide(value: boolean) {
   readerToolbarAutoHide.value = value
   if (!value) topbarHidden.value = false
 }
+
+function toggleAiPanel() {
+  aiPanelOpen.value = !aiPanelOpen.value
+  // Close other panels
+  pdfStylePanelOpen.value = false
+  pdfShapeMenuOpen.value = false
+  pdfZoomMenuOpen.value = false
+  pdfMoreMenuOpen.value = false
+  pdfSearchOpen.value = false
+  pdfSettingsOpen.value = false
+  panelRightOpen.value = false
+}
 async function shareDocument() {
   pdfMoreMenuOpen.value = false
   pdfSharing.value = true
@@ -407,6 +432,7 @@ function onReaderKeydown(event: KeyboardEvent) {
     pdfMoreMenuOpen.value = false
     pdfSearchOpen.value = false
     pdfSettingsOpen.value = false
+    aiPanelOpen.value = false
     pdfCancelPageEdit()
   }
 }
@@ -420,9 +446,56 @@ const doc = computed(() => documentStore.currentDocument)
 const content = computed(() => documentStore.documentContent)
 const annotations = computed(() => annotationStore.annotations)
 
-function toggleLeft() { panelLeftOpen.value = !panelLeftOpen.value }
 function toggleRight() { panelRightOpen.value = !panelRightOpen.value }
-function closePanels() { panelLeftOpen.value = false; panelRightOpen.value = false }
+function closePanels() { panelRightOpen.value = false }
+
+// ── AI Assistant: methods ──
+
+/**
+ * 处理AI输入
+ */
+async function handleAiInput() {
+  const text = aiInput.value.trim()
+  if (!text) return
+
+  aiInput.value = ''
+
+  if (aiMode.value === 'search') {
+    await aiStore.search(text)
+  } else {
+    const docId = capturedDocId > 0 ? capturedDocId : null
+    await aiStore.chat(docId, text, 'chat')
+  }
+}
+
+/**
+ * 生成文档总结
+ */
+async function handleSummary() {
+  if (!capturedDocId) return
+  await aiStore.getSummary(capturedDocId)
+}
+
+/**
+ * 联网搜索
+ */
+async function handleSearch() {
+  aiMode.value = 'search'
+  aiInput.value = ''
+  await nextTick()
+  document.querySelector<HTMLInputElement>('.ai-panel-input input')?.focus()
+}
+
+watch(
+  () => aiStore.messages.map((message) => message.content).join('\u0000'),
+  async () => {
+    await nextTick()
+    if (aiMessagesRef.value) {
+      aiMessagesRef.value.scrollTop = aiMessagesRef.value.scrollHeight
+    }
+  },
+  { flush: 'post' },
+)
 
 // ── Annotation: selection & toolbar ──
 
@@ -660,18 +733,23 @@ onBeforeUnmount(() => {
 <template>
   <div class="reader-page">
     <!-- Overlay -->
-    <div :class="['panel-overlay', { show: panelLeftOpen || panelRightOpen }]" @click="closePanels"></div>
+    <div :class="['panel-overlay', { show: panelRightOpen }]" @click="closePanels"></div>
 
-    <!-- Floating Top Bar -->
-    <div v-if="doc?.file_type === 'pdf'" :class="['reader-topbar', { hidden: topbarHidden, 'eraser-active': pdfActiveTool === 'eraser' }]">
+    <!-- Floating Top Bar (PDF only; text documents use their editor toolbar) -->
+    <div
+      v-if="doc?.file_type === 'pdf'"
+      :class="['reader-topbar', { hidden: topbarHidden, 'eraser-active': pdfActiveTool === 'eraser' }]"
+    >
       <button class="tb-btn" title="返回" aria-label="返回" @click="router.push('/documents')">
         <ArrowLeft />
       </button>
       <div class="tb-divider"></div>
-      <button class="tb-btn" title="目录" aria-label="目录" @click="toggleLeft">
-        <List />
+      <!-- AI Assistant button (all document types) -->
+      <button :class="['tb-btn', { active: aiPanelOpen }]" title="AI助手" aria-label="AI助手" @click="toggleAiPanel">
+        <Sparkles />
       </button>
-      <button class="tb-btn" title="批注和AI" aria-label="批注和AI" @click="toggleRight">
+      <!-- Annotations button (PDF only) -->
+      <button v-if="doc?.file_type === 'pdf'" class="tb-btn" title="批注列表" aria-label="批注列表" @click="toggleRight">
         <MessageSquare />
       </button>
 
@@ -944,25 +1022,56 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </template>
+    </div>
 
-      <!-- Text reader tools -->
-      <template v-if="doc?.file_type !== 'pdf'">
-        <div class="tb-divider"></div>
-        <button class="tb-btn" title="搜索">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <!-- AI Panel Popover (positioned independently) -->
+    <div v-if="aiPanelOpen" class="ai-panel-overlay" @click="aiPanelOpen = false"></div>
+    <div v-if="aiPanelOpen" :class="['tb-ai-panel', { 'tb-ai-panel--editor': doc?.file_type !== 'pdf' }]">
+      <div class="ai-panel-header">
+        <Sparkles :size="16" />
+        <span>AI 助手</span>
+      </div>
+      <!-- Chat messages -->
+      <div ref="aiMessagesRef" class="ai-panel-messages">
+        <div v-if="messages.length === 0" class="ai-panel-empty">
+          <p>AI 助手已就绪</p>
+          <p class="hint">询问文档问题、搜索互联网或生成总结</p>
+        </div>
+        <div v-for="(msg, index) in messages" :key="index" :class="['ai-panel-msg', `ai-panel-msg--${msg.role}`]">
+          <div class="ai-panel-msg__content">{{ msg.content }}</div>
+        </div>
+        <div v-if="aiStore.loading" class="ai-panel-loading">
+          <LoaderCircle class="spin" :size="14" />
+          <span>思考中...</span>
+        </div>
+        <div v-if="aiStore.error" class="ai-panel-error">
+          {{ aiStore.error }}
+        </div>
+      </div>
+      <!-- Quick actions -->
+      <div class="ai-panel-actions">
+        <button v-if="doc" @click="handleSummary" :disabled="aiStore.loading" class="ai-panel-action">
+          <Sparkles :size="14" />
+          <span>生成总结</span>
         </button>
-        <button class="tb-btn" title="缩小">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <button @click="handleSearch" :disabled="aiStore.loading" class="ai-panel-action">
+          <Search :size="14" />
+          <span>联网搜索</span>
         </button>
-        <span class="tb-label">100%</span>
-        <button class="tb-btn" title="放大">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      </div>
+      <!-- Input area -->
+      <div class="ai-panel-input">
+        <input
+          v-model="aiInput"
+          type="text"
+          :placeholder="aiInputPlaceholder"
+          @keydown.enter.exact.prevent="handleAiInput"
+        />
+        <button :disabled="aiStore.loading || !aiInput.trim()" @click="handleAiInput">
+          <Send v-if="!aiStore.loading" :size="14" />
+          <LoaderCircle v-else class="spin" :size="14" />
         </button>
-        <div class="tb-divider"></div>
-        <button class="tb-btn" title="AI总结">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-        </button>
-      </template>
+      </div>
     </div>
 
     <!-- Left Panel: TOC (placeholder — real TOC needs parsed content) -->
@@ -977,52 +1086,29 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Right Panel: Annotations + AI -->
+    <!-- Right Panel: Annotations (PDF only) -->
     <div v-if="doc?.file_type === 'pdf'" :class="['panel-right', { open: panelRightOpen }]">
       <div class="panel__header">
-        <h3>批注与 AI</h3>
+        <h3>批注列表</h3>
         <button @click="panelRightOpen = false">✕</button>
       </div>
       <div class="panel__body">
-        <div class="panel-tabs">
-          <button :class="['pt-btn', { active: showAnnoTab }]" @click="showAnnoTab = true">
-            批注 ({{ annotations.length }})
+        <div v-if="annotations.length === 0" class="anno-empty">选中文本即可添加批注</div>
+        <div
+          v-for="anno in annotations"
+          :key="anno.id"
+          class="anno-card"
+          @click="goToAnnotation(anno)"
+        >
+          <div class="anno-card__text">{{ annotationLabel(anno) }}</div>
+          <div class="anno-card__meta">
+            <span class="anno-highlight" :style="{ background: anno.color || '#FDE68A' }">{{ annotationTypeLabel(anno) }}</span>
+            <span>第 {{ anno.page || 1 }} 页</span>
+            {{ anno.note ? `· ${anno.note}` : '' }}
+          </div>
+          <button class="anno-card__del" title="删除" @click.stop="deleteAnnotation(anno.id)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
-          <button :class="['pt-btn', { active: !showAnnoTab }]" @click="showAnnoTab = false">
-            AI 助手
-          </button>
-        </div>
-
-        <!-- Annotations tab -->
-        <div v-if="showAnnoTab">
-          <div v-if="annotations.length === 0" class="anno-empty">选中文本即可添加批注</div>
-          <div
-            v-for="anno in annotations"
-            :key="anno.id"
-            class="anno-card"
-            @click="goToAnnotation(anno)"
-          >
-            <div class="anno-card__text">{{ annotationLabel(anno) }}</div>
-            <div class="anno-card__meta">
-              <span class="anno-highlight" :style="{ background: anno.color || '#FDE68A' }">{{ annotationTypeLabel(anno) }}</span>
-              <span v-if="doc?.file_type === 'pdf'">第 {{ anno.page || 1 }} 页</span>
-              {{ anno.note ? `· ${anno.note}` : '' }}
-            </div>
-            <button class="anno-card__del" title="删除" @click.stop="deleteAnnotation(anno.id)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-          </div>
-        </div>
-
-        <!-- AI tab -->
-        <div v-else>
-          <div class="ai-message">
-            <div class="ai-message__label">AI 总结</div>
-            <p>你的 AI 阅读助手已就绪。选中文本后可进行解释、翻译或提问。</p>
-          </div>
-          <div class="ai-input">
-            <input type="text" placeholder="向 AI 提问..." />
-          </div>
         </div>
       </div>
     </div>
@@ -1066,7 +1152,9 @@ onBeforeUnmount(() => {
       :title="doc?.title || '未命名文档'"
       :content="content"
       :file-type="doc?.file_type || 'md'"
+      :ai-active="aiPanelOpen"
       @back="router.push('/documents')"
+      @toggle-ai="toggleAiPanel"
     />
   </div>
 </template>
@@ -1258,6 +1346,165 @@ onBeforeUnmount(() => {
   box-shadow: 0 8px 24px rgba(61,46,36,0.16);
   font-family: var(--font-ui);
 }
+
+/* AI Panel Overlay */
+.ai-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+}
+
+/* AI Panel Styles */
+.tb-ai-panel {
+  position: fixed;
+  top: 3.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 36;
+  width: min(380px, calc(100vw - 1.5rem));
+  padding: 0.65rem;
+  background: rgba(250,248,245,0.98);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(61,46,36,0.16);
+  font-family: var(--font-ui);
+}
+.tb-ai-panel--editor {
+  top: 4.25rem;
+  left: auto;
+  right: 1rem;
+  transform: none;
+}
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.55rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+.ai-panel-messages {
+  max-height: min(280px, 40vh);
+  overflow-y: auto;
+  margin-bottom: 0.55rem;
+}
+.ai-panel-empty {
+  padding: 1rem 0.5rem;
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 0.78rem;
+}
+.ai-panel-empty .hint {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  margin-top: 0.25rem;
+}
+.ai-panel-msg {
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  margin-bottom: 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  max-width: 90%;
+  word-wrap: break-word;
+}
+.ai-panel-msg--user {
+  background: var(--accent-light);
+  color: var(--text-primary);
+  margin-left: auto;
+}
+.ai-panel-msg--assistant {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+.ai-panel-msg__content {
+  white-space: pre-wrap;
+}
+.ai-panel-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+.ai-panel-error {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(180, 35, 24, 0.28);
+  border-radius: 8px;
+  background: rgba(180, 35, 24, 0.06);
+  color: #b42318;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.ai-panel-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.55rem;
+}
+.ai-panel-action {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-page);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ai-panel-action:hover:not(:disabled) {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ai-panel-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ai-panel-input {
+  display: flex;
+  gap: 0.35rem;
+}
+.ai-panel-input input {
+  flex: 1;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  outline: none;
+}
+.ai-panel-input input:focus {
+  border-color: var(--accent);
+}
+.ai-panel-input button {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.ai-panel-input button:hover:not(:disabled) {
+  opacity: 0.85;
+}
+.ai-panel-input button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .settings-panel__header {
   display: flex;
   align-items: center;
@@ -1387,6 +1634,182 @@ onBeforeUnmount(() => {
 .ai-input input { flex: 1; padding: 0.5rem 0.8rem; border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-page); font-family: var(--font-ui); font-size: 0.8rem; color: var(--text-primary); outline: none; }
 .ai-input input:focus { border-color: var(--accent); }
 
+/* AI Panel Styles */
+.ai-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 400px;
+}
+
+.ai-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.ai-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ai-empty svg {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 0.5rem;
+  opacity: 0.5;
+}
+
+.ai-empty p {
+  margin: 0.2rem 0;
+  font-size: 0.85rem;
+}
+
+.ai-empty__hint {
+  font-size: 0.75rem !important;
+  opacity: 0.7;
+}
+
+.ai-message {
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  max-width: 85%;
+  word-wrap: break-word;
+}
+
+.ai-message--user {
+  background: var(--accent-light);
+  color: var(--text-primary);
+  align-self: flex-end;
+  margin-left: 1rem;
+}
+
+.ai-message--assistant {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  align-self: flex-start;
+  margin-right: 1rem;
+  border: 1px solid var(--border-color);
+}
+
+.ai-message__content {
+  white-space: pre-wrap;
+}
+
+.ai-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.ai-input-area {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-card);
+}
+
+.ai-input-wrapper {
+  flex: 1;
+}
+
+.ai-input-wrapper input {
+  width: 100%;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background: var(--bg-page);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.ai-input-wrapper input:focus {
+  border-color: var(--accent);
+}
+
+.ai-send-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.ai-send-btn:hover:not(.disabled) {
+  opacity: 0.85;
+}
+
+.ai-send-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ai-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.ai-action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-page);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ai-action-btn:hover:not(:disabled) {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.ai-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .page-edge { position: fixed; top: 0; right: 0; bottom: 0; width: clamp(60px, 8vw, 140px); background: linear-gradient(to right, transparent, rgba(0,0,0,0.015) 40%, rgba(0,0,0,0.025)); pointer-events: none; z-index: 1; }
 
 .reader-content { max-width: 920px; margin: 0 auto; padding: 4.5rem 3rem 6rem; min-height: 100vh; }
@@ -1438,6 +1861,7 @@ onBeforeUnmount(() => {
   .tb-btn[aria-label="添加文本"],
   .tb-btn[aria-label="形状"],
   .tb-status { display: none; }
+  .tb-ai-panel { width: calc(100vw - 1rem); max-width: 380px; }
 }
 
 @media (max-width: 760px) {
@@ -1454,6 +1878,8 @@ onBeforeUnmount(() => {
   .tb-zoom-label { display: none; }
   .tb-page-label { min-width: 64px; }
   .tb-popover { position: fixed; top: 3.8rem; left: 0.75rem; right: 0.75rem; transform: none; width: auto; }
+  .tb-ai-panel,
+  .tb-ai-panel--editor { left: 0.75rem; right: 0.75rem; transform: none; width: auto; }
   .shape-menu { position: fixed; top: 3.8rem; left: 0.75rem; right: 0.75rem; transform: none; grid-template-columns: repeat(4, minmax(0, 1fr)); min-width: 0; }
   .shape-menu button { justify-content: center; }
   .shape-menu button span { display: none; }
@@ -1466,9 +1892,94 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 440px) {
-  .tb-btn[aria-label="批注和AI"],
+  .tb-btn[aria-label="批注列表"],
   .tb-btn[aria-label="上一页"],
   .tb-btn[aria-label="下一页"] { display: none; }
   .tb-page-label { min-width: 58px; padding-inline: 0.3rem; }
+}
+</style>
+
+<!-- Reading Mode Styles (non-scoped, applied globally for this view) -->
+<style>
+/* Reading mode enhanced styles for ReaderView */
+html.reading-mode .reader-page {
+  background-color: var(--reading-bg);
+}
+
+html.reading-mode .reader-content {
+  background: var(--reading-bg);
+  box-shadow: var(--reading-shadow);
+  position: relative;
+  border-radius: 4px;
+}
+
+html.reading-mode .reader-inner {
+  max-width: var(--reading-max-width);
+}
+
+html.reading-mode .doc-body {
+  color: var(--reading-text);
+  letter-spacing: var(--reading-letter-spacing);
+  line-height: var(--reading-line-height);
+}
+
+html.reading-mode .doc-body p {
+  margin-bottom: var(--reading-para-margin);
+}
+
+/* Enhanced toolbar behavior in reading mode */
+html.reading-mode .reader-topbar {
+  opacity: var(--reading-toolbar-opacity);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+html.reading-mode .reader-topbar:hover {
+  opacity: 1;
+}
+
+/* Reading mode: softer text colors */
+html.reading-mode .doc-meta {
+  color: var(--reading-text-muted);
+}
+
+html.reading-mode .doc-body h1,
+html.reading-mode .doc-body h2,
+html.reading-mode .doc-body h3,
+html.reading-mode .doc-body h4 {
+  color: var(--reading-text);
+}
+
+/* Reading mode: enhanced code blocks and quotes */
+html.reading-mode .doc-body blockquote {
+  background: rgba(198, 122, 78, 0.06);
+  border-left-color: rgba(198, 122, 78, 0.5);
+}
+
+html.reading-mode .doc-body code {
+  background: rgba(240, 230, 220, 0.6);
+}
+
+html.reading-mode .doc-body pre {
+  background: rgba(240, 230, 220, 0.4);
+}
+
+/* Reading mode: PDF viewer enhancements */
+html.reading-mode .reader-pdf-wrapper {
+  background: var(--reading-bg);
+}
+
+/* Reading mode: page edge effect (simulate book pages) */
+html.reading-mode .page-edge {
+  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.03) 40%, rgba(0, 0, 0, 0.06));
+}
+
+/* Reading mode: panel overlays with softer appearance */
+html.reading-mode .panel-overlay {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+html.reading-mode .panel-left,
+html.reading-mode .panel-right {
+  background: rgba(250, 248, 245, 0.95);
 }
 </style>

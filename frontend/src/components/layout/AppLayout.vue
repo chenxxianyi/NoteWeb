@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import Sidebar from './Sidebar.vue'
-import { onMounted } from 'vue'
+import { onMounted, computed } from 'vue'
 import { useAuthStore } from '../../stores/authStore'
-import { useRouter } from 'vue-router'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { useRouter, useRoute } from 'vue-router'
 
 const authStore = useAuthStore()
+const settingsStore = useSettingsStore()
 const router = useRouter()
+const route = useRoute()
+
+const isReaderView = computed(() => {
+  return route.path.startsWith('/reader/')
+})
+
+const isReadingModeActive = computed(() => {
+  return settingsStore.readingMode && isReaderView.value
+})
 
 onMounted(() => {
   if (!authStore.user && authStore.token) {
@@ -19,7 +30,7 @@ onMounted(() => {
 <template>
   <div class="app-layout">
     <Sidebar />
-    <main class="main">
+    <main :class="['main', { 'main--reading-mode': isReadingModeActive }]">
       <slot />
     </main>
   </div>
@@ -39,10 +50,17 @@ onMounted(() => {
   );
   background-size: 100% 2px;
 }
+
 .main {
   margin-left: var(--sidebar-w);
   flex: 1;
   min-width: 0;
+  transition: margin-left 0.3s ease;
+}
+
+/* Reading mode: main expands when sidebar collapsed */
+.main--reading-mode {
+  margin-left: 4px;
 }
 
 @media (max-width: 520px) {

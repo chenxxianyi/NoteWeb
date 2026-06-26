@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import { useAuthStore } from '../stores/authStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useDocumentStore } from '../stores/documentStore'
+import * as aiApi from '../api/ai'
 
-const router = useRouter()
 const authStore = useAuthStore()
 const settingsStore = useSettingsStore()
 const documentStore = useDocumentStore()
@@ -18,25 +17,75 @@ const readingMode = computed(() => settingsStore.readingMode)
 
 // Modal states
 const showPasswordModal = ref(false)
-const showDeleteModal = ref(false)
 const showProfileModal = ref(false)
 const oldPassword = ref('')
 const newPassword = ref('')
 const confirmPassword = ref('')
-const deletePassword = ref('')
 const editUsername = ref('')
 const editEmail = ref('')
 const avatarFile = ref<File | null>(null)
 const avatarPreview = ref<string>('')
 
-// AI settings — persisted in localStorage
-const aiProvider = ref(localStorage.getItem('ai_provider') || 'Mock API')
+// AI settings are saved to the backend; localStorage keeps the filled key visible across reloads.
+const savedAIProvider = localStorage.getItem('ai_provider')
+const aiProvider = ref(savedAIProvider && savedAIProvider !== 'Mock API' ? savedAIProvider : 'DeepSeek')
+const aiModel = ref(localStorage.getItem('ai_model') || 'deepseek-chat')
 const aiKey = ref(localStorage.getItem('ai_key') || '')
 const aiBaseUrl = ref(localStorage.getItem('ai_base_url') || '')
 const aiSaved = ref(false)
 const showNotification = ref(false)
 const notificationMessage = ref('')
 const loadingAction = ref(false)
+
+// AI Models for each provider
+const aiModels: Record<string, string[]> = {
+  'OpenAI': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
+  'DeepSeek': ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner'],
+  '自定义': ['custom-model'],
+}
+
+// Get available models for current provider
+const availableModels = computed(() => {
+  return aiModels[aiProvider.value] || ['custom-model']
+})
+
+// Reset model when provider changes
+watch(aiProvider, (newProvider) => {
+  const models = aiModels[newProvider] || ['custom-model']
+  if (!models.includes(aiModel.value)) {
+    aiModel.value = models[0]
+  }
+  if (newProvider === 'DeepSeek') {
+    aiBaseUrl.value = ''
+  }
+})
+
+function toProviderAPIValue(provider: string) {
+  if (provider === 'DeepSeek') return 'deepseek'
+  if (provider === 'OpenAI') return 'openai'
+  return 'custom'
+}
+
+function toProviderLabel(provider: string) {
+  if (provider === 'openai') return 'OpenAI'
+  if (provider === 'custom') return '自定义'
+  return 'DeepSeek'
+}
+
+async function loadAISettings() {
+  try {
+    const response = await aiApi.getProviderConfig()
+    aiProvider.value = toProviderLabel(response.data.provider)
+    const models = aiModels[aiProvider.value] || ['custom-model']
+    aiModel.value = response.data.model && models.includes(response.data.model)
+      ? response.data.model
+      : models[0]
+    aiBaseUrl.value = aiProvider.value === 'DeepSeek' ? '' : response.data.base_url || ''
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || e?.message || 'AI 配置读取失败'
+    showNotificationToast(msg)
+  }
+}
 
 function showNotificationToast(msg: string) {
   notificationMessage.value = msg
@@ -46,18 +95,44 @@ function showNotificationToast(msg: string) {
   }, 2000)
 }
 
-function saveAISettings() {
-  localStorage.setItem('ai_provider', aiProvider.value)
-  localStorage.setItem('ai_key', aiKey.value)
-  localStorage.setItem('ai_base_url', aiBaseUrl.value)
-  aiSaved.value = true
-  showNotificationToast('AI 配置已保存')
-  setTimeout(() => { aiSaved.value = false }, 2000)
+async function saveAISettings() {
+  const provider = toProviderAPIValue(aiProvider.value)
+  const apiKey = aiKey.value.trim()
+  const baseUrl = provider === 'deepseek' ? '' : aiBaseUrl.value.trim()
+
+  if (provider !== 'deepseek' && !baseUrl) {
+    showNotificationToast('请填写 AI Base URL')
+    return
+  }
+
+  loadingAction.value = true
+  try {
+    await aiApi.updateProviderConfig({
+      provider,
+      model: aiModel.value,
+      api_key: apiKey || undefined,
+      base_url: baseUrl || undefined,
+    })
+
+    localStorage.setItem('ai_provider', aiProvider.value)
+    localStorage.setItem('ai_model', aiModel.value)
+    localStorage.setItem('ai_key', apiKey)
+    localStorage.setItem('ai_base_url', baseUrl)
+    aiSaved.value = true
+    showNotificationToast('AI 配置已保存')
+    setTimeout(() => { aiSaved.value = false }, 2000)
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || e?.message || 'AI 配置保存失败'
+    showNotificationToast(msg)
+  } finally {
+    loadingAction.value = false
+  }
 }
 
 function handleReadingModeChange() {
-  settingsStore.setReadingMode(!readingMode.value)
-  showNotificationToast(readingMode.value ? '阅读模式已关闭' : '阅读模式已开启')
+  const newValue = !readingMode.value
+  settingsStore.setReadingMode(newValue)
+  showNotificationToast(newValue ? '阅读模式已开启' : '阅读模式已关闭')
 }
 
 // Password change
@@ -144,34 +219,6 @@ async function updateProfile() {
   }
 }
 
-// Account deletion
-function openDeleteModal() {
-  deletePassword.value = ''
-  showDeleteModal.value = true
-}
-
-async function deleteAccount() {
-  if (!deletePassword.value) {
-    showNotificationToast('请输入密码确认删除')
-    return
-  }
-
-  const confirmed = window.confirm('确定要删除账号吗？此操作不可撤销，所有数据将被永久删除。')
-  if (!confirmed) return
-
-  loadingAction.value = true
-  try {
-    await authStore.deleteAccount(deletePassword.value)
-    showDeleteModal.value = false
-    showNotificationToast('账号已删除')
-    router.push('/login')
-  } catch (e: any) {
-    const msg = e?.response?.data?.detail || e?.message || '删除失败'
-    showNotificationToast(msg)
-  } finally {
-    loadingAction.value = false
-  }
-}
 
 const storageUsed = computed(() => {
   const bytes = authStore.user?.storage_used || 0
@@ -244,7 +291,10 @@ onMounted(async () => {
     await documentStore.fetchDocuments()
   }
   // Fetch settings from backend
-  await settingsStore.fetchSettings()
+  await Promise.allSettled([
+    settingsStore.fetchSettings(),
+    loadAISettings(),
+  ])
 })
 </script>
 
@@ -291,22 +341,6 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Delete Account Modal -->
-      <div v-if="showDeleteModal" class="modal-overlay" @click.self="showDeleteModal = false">
-        <div class="modal">
-          <h3 class="modal__title" style="color:#DC2626;">删除账号</h3>
-          <div class="modal__content">
-            <p style="color:#DC2626;margin-bottom:1rem;">此操作不可撤销，所有数据将被永久删除！</p>
-            <input v-model="deletePassword" class="input modal__input" type="password" placeholder="请输入密码确认" />
-          </div>
-          <div class="modal__actions">
-            <button class="btn" @click="showDeleteModal = false">取消</button>
-            <button class="btn" style="background:#DC2626;color:#fff;border-color:#DC2626;" :disabled="loadingAction" @click="deleteAccount">
-              {{ loadingAction ? '删除中...' : '确认删除' }}
-            </button>
-          </div>
-        </div>
-      </div>
 
       <div class="main-inner">
         <h1 class="page-title">设置</h1>
@@ -416,7 +450,7 @@ onMounted(async () => {
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">阅读模式</div>
-                <div class="setting-item__desc">开启后阅读器背景模拟纸质书质感</div>
+                <div class="setting-item__desc">沉浸式阅读体验 · 纸书质感 · 暖光护眼 · 自动收起侧边栏</div>
               </div>
               <div
                 :class="['toggle', { active: readingMode }]"
@@ -459,18 +493,39 @@ onMounted(async () => {
           <div class="section__card">
             <div class="setting-item">
               <div class="setting-item__icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">AI 提供商</div>
                 <div class="setting-item__desc">选择 AI 阅读助手的后端服务</div>
               </div>
               <select v-model="aiProvider" class="input" style="width:160px;cursor:pointer;">
-                <option>Mock API</option>
-                <option>OpenAI</option>
                 <option>DeepSeek</option>
+                <option>OpenAI</option>
                 <option>自定义</option>
               </select>
+            </div>
+            <div class="setting-item">
+              <div class="setting-item__icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              </div>
+              <div class="setting-item__info">
+                <div class="setting-item__label">模型</div>
+                <div class="setting-item__desc">选择要使用的 AI 模型</div>
+              </div>
+              <div class="model-select-wrapper">
+                <select v-model="aiModel" class="input" style="width:160px;cursor:pointer;">
+                  <option v-for="model in availableModels" :key="model" :value="model">{{ model }}</option>
+                </select>
+                <input 
+                  v-if="aiProvider === '自定义'" 
+                  v-model="aiModel" 
+                  class="input input--long" 
+                  type="text" 
+                  placeholder="输入自定义模型名称"
+                  style="margin-left:0.5rem;"
+                />
+              </div>
             </div>
             <div class="setting-item">
               <div class="setting-item__icon">
@@ -478,43 +533,28 @@ onMounted(async () => {
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">API Key</div>
-                <div class="setting-item__desc">暂不填则使用 Mock 服务</div>
+                <div class="setting-item__desc">用于调用真实模型，调用失败会直接提示错误</div>
               </div>
               <input v-model="aiKey" class="input input--long" type="password" placeholder="sk-xxxxxxxxxxxxxxxx" />
             </div>
-            <div v-if="aiProvider === '自定义'" class="setting-item">
+            <div v-if="aiProvider !== 'DeepSeek'" class="setting-item">
               <div class="setting-item__icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
               </div>
               <div class="setting-item__info">
                 <div class="setting-item__label">Base URL</div>
-                <div class="setting-item__desc">API 端点地址，支持中转站</div>
+                <div class="setting-item__desc">API 端点地址，支持 OpenAI 兼容服务或中转站</div>
               </div>
-              <input v-model="aiBaseUrl" class="input input--long" type="text" placeholder="https://your-proxy.com/v1" />
+              <input v-model="aiBaseUrl" class="input input--long" type="text" placeholder="https://api.openai.com/v1" />
             </div>
             <div class="setting-item" style="border-bottom:none;">
               <div></div>
               <div class="setting-item__info">
                 <div v-if="aiSaved" class="setting-item__desc" style="color:#16A34A;">✅ 已保存</div>
               </div>
-              <button class="btn btn--primary" @click="saveAISettings">保存配置</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Danger Zone -->
-        <div class="section">
-          <h2 class="section__title" style="color:#DC2626;">危险操作</h2>
-          <div class="section__card" style="border-color:#FECACA;">
-            <div class="setting-item" style="border-bottom:none;">
-              <div class="setting-item__icon" style="background:#FEE2E2;color:#DC2626;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </div>
-              <div class="setting-item__info">
-                <div class="setting-item__label" style="color:#DC2626;">删除账号</div>
-                <div class="setting-item__desc">删除所有数据，此操作不可撤销</div>
-              </div>
-              <button class="btn" style="border-color:#FECACA;color:#DC2626;" @click="openDeleteModal">删除账号</button>
+              <button class="btn btn--primary" :disabled="loadingAction" @click="saveAISettings">
+                {{ loadingAction ? '保存中...' : '保存配置' }}
+              </button>
             </div>
           </div>
         </div>
@@ -596,6 +636,8 @@ onMounted(async () => {
 .input { padding: 0.5rem 0.8rem; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-page); font-family: var(--font-ui); font-size: 0.85rem; color: var(--text-primary); outline: none; width: 200px; }
 .input:focus { border-color: var(--accent); }
 .input--long { width: 260px; }
+
+.model-select-wrapper { display: flex; align-items: center; gap: 0.5rem; }
 
 .btn { padding: 0.4rem 1rem; border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-card); font-family: var(--font-ui); font-size: 0.8rem; color: var(--text-secondary); cursor: pointer; transition: all 0.12s; }
 .btn:hover { border-color: var(--accent); color: var(--accent); }

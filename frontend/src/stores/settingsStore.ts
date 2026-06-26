@@ -19,7 +19,7 @@ const THEME_COLORS: Record<ThemeType, string> = {
 const DEFAULT_SETTINGS: Settings = {
   theme: 'warm',
   font: 'Noto Serif SC',
-  readingMode: true,
+  readingMode: false,
 }
 
 function loadSettings(): Settings {

@@ -22,6 +22,36 @@
   --sidebar-w: 68px;
   --shadow-card: none;
   --shadow-float: 0 2px 12px rgba(61, 46, 36, 0.08);
+
+  /* Reading Mode Variables (默认值 - 普通模式) */
+  --reading-bg: #F5F0EB;
+  --reading-text: #3D2E24;
+  --reading-text-muted: #8B7A6B;
+  --reading-line-height: 1.9;
+  --reading-letter-spacing: 0;
+  --reading-para-margin: 1rem;
+  --reading-max-width: 680px;
+  --reading-shadow: none;
+  --reading-glow: none;
+  --reading-filter: none;
+  --reading-sidebar-opacity: 1;
+  --reading-toolbar-opacity: 1;
+}
+
+/* Reading Mode Variables (阅读模式开启时覆盖) */
+html.reading-mode {
+  --reading-bg: #FAF6F0;
+  --reading-text: #4A3C30;
+  --reading-text-muted: #9B8A7B;
+  --reading-line-height: 2.2;
+  --reading-letter-spacing: 0.02em;
+  --reading-para-margin: 1.5rem;
+  --reading-max-width: 640px;
+  --reading-shadow: 0 0 60px rgba(61, 46, 36, 0.06), -8px 0 30px rgba(0, 0, 0, 0.04), 8px 0 30px rgba(0, 0, 0, 0.04);
+  --reading-glow: radial-gradient(ellipse at 50% 50%, rgba(198, 122, 78, 0.08) 0%, transparent 60%);
+  --reading-filter: sepia(0.08) saturate(0.95);
+  --reading-sidebar-opacity: 0.3;
+  --reading-toolbar-opacity: 0.9;
 }
 
 /* Paper texture background */
@@ -36,43 +66,51 @@
   background-size: 100% 2px;
 }
 
-/* Reading mode: paper texture overlay on the entire app */
-.reading-mode body {
+/* Reading mode global effects */
+html.reading-mode {
+  /* Warm light filter applied to entire page */
+  filter: var(--reading-filter);
+}
+
+html.reading-mode body {
+  background-color: var(--reading-bg);
+  /* Enhanced paper texture with subtle noise */
   background-image:
-    /* Subtle paper grain texture */
     repeating-linear-gradient(
       0deg,
       transparent,
-      transparent 1px,
-      rgba(0, 0, 0, 0.005) 1px,
-      rgba(0, 0, 0, 0.005) 2px
+      transparent 2px,
+      rgba(0, 0, 0, 0.003) 2px,
+      rgba(0, 0, 0, 0.003) 4px
     ),
     repeating-linear-gradient(
       90deg,
       transparent,
-      transparent 2px,
-      rgba(0, 0, 0, 0.003) 2px,
-      rgba(0, 0, 0, 0.003) 3px
+      transparent 3px,
+      rgba(0, 0, 0, 0.002) 3px,
+      rgba(0, 0, 0, 0.002) 5px
     );
-  background-size: 100% 2px, 3px 100%;
+  background-size: 100% 4px, 5px 100%;
 }
 
-/* Reading mode: softer contrast for reader content */
-.reading-mode .reader-content {
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(198, 122, 78, 0.03) 0%, transparent 70%),
-    radial-gradient(ellipse at 50% 100%, rgba(198, 122, 78, 0.02) 0%, transparent 70%);
+/* Reading mode: sidebar auto-hide effect */
+html.reading-mode .sidebar-nav {
+  opacity: var(--reading-sidebar-opacity);
+  transition: opacity 0.3s ease;
 }
 
-.reading-mode .doc-body {
-  color: #4A3C30;
-  letter-spacing: 0.01em;
-  line-height: 2;
+html.reading-mode .sidebar-nav:hover {
+  opacity: 1;
 }
 
-/* Reading mode: slightly wider max-width for comfortable reading */
-.reading-mode .reader-inner {
-  max-width: 720px;
+/* Reading mode: focus glow overlay */
+html.reading-mode .reader-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--reading-glow);
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* Lucide icon sizing helpers */
