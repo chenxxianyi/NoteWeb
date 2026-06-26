@@ -407,10 +407,10 @@ onUnmounted(() => {
 
 .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
 .topbar__left h1 { font-family: var(--font-display); font-size: 1.4rem; font-weight: 500; }
-.topbar__right { display: flex; gap: 0.6rem; align-items: center; }
-.topbar__search { position: relative; }
+.topbar__right { display: flex; gap: 0.6rem; align-items: center; flex: 1; justify-content: flex-end; min-width: 0; }
+.topbar__search { position: relative; flex: 0 1 420px; min-width: 240px; }
 .search-icon { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
-.topbar__search input { font-family: var(--font-ui); font-size: 0.85rem; padding: 0.5rem 0.8rem 0.5rem 2.2rem; border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-card); color: var(--text-primary); outline: none; width: 220px; transition: border-color 0.15s; }
+.topbar__search input { width: 100%; font-family: var(--font-ui); font-size: 0.85rem; padding: 0.5rem 0.8rem 0.5rem 2.2rem; border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-card); color: var(--text-primary); outline: none; transition: border-color 0.15s; }
 .topbar__search input:focus { border-color: var(--accent); }
 .upload-btn { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.9rem 0.4rem 0.6rem; border: 1px solid var(--border-color); border-radius: 20px; background: var(--bg-card); font-family: var(--font-ui); font-size: 0.8rem; color: var(--text-secondary); cursor: pointer; transition: all 0.15s; }
 .upload-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
@@ -478,12 +478,14 @@ onUnmounted(() => {
 @media (max-width: 820px) {
   .shelf { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
   .documents-page { padding: 1.2rem; }
-  .topbar__search input { width: 160px; }
+  .topbar__search { flex-basis: 320px; min-width: 220px; }
 }
 @media (max-width: 520px) {
   .documents-page { padding: 1rem; }
   .topbar { flex-direction: column; align-items: stretch; }
-  .topbar__right { flex-wrap: wrap; }
+  .topbar__right { width: 100%; flex-wrap: nowrap; justify-content: flex-start; }
+  .topbar__search { flex: 1 1 auto; min-width: 0; }
+  .upload-btn { flex: 0 0 auto; }
 }
 
 /* Rename Modal — matches project aesthetic */

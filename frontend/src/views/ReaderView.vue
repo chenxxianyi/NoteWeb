@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
+  Clipboard,
   Download,
   Eraser,
   FileText,
@@ -66,6 +67,8 @@ const aiInputPlaceholder = computed(() => {
 })
 const messages = computed(() => aiStore.messages)
 const aiMessagesRef = ref<HTMLElement | null>(null)
+const copiedAiMessageIndex = ref<number | null>(null)
+let copiedAiMessageTimer: number | null = null
 
 // PDF drawing state
 const pdfRef = ref<InstanceType<typeof PDFViewer> | null>(null)
@@ -487,6 +490,23 @@ async function handleSearch() {
   document.querySelector<HTMLInputElement>('.ai-panel-input input')?.focus()
 }
 
+async function copyAiMessage(content: string, index: number) {
+  const text = content.trim()
+  if (!text) return
+
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedAiMessageIndex.value = index
+    if (copiedAiMessageTimer) window.clearTimeout(copiedAiMessageTimer)
+    copiedAiMessageTimer = window.setTimeout(() => {
+      copiedAiMessageIndex.value = null
+      copiedAiMessageTimer = null
+    }, 1600)
+  } catch (e: any) {
+    window.alert(e?.message || '复制失败，请稍后再试')
+  }
+}
+
 watch(
   () => aiStore.messages.map((message) => message.content).join('\u0000'),
   async () => {
@@ -723,6 +743,10 @@ onBeforeUnmount(() => {
   if (progressTimer) {
     clearInterval(progressTimer)
     progressTimer = null
+  }
+  if (copiedAiMessageTimer) {
+    window.clearTimeout(copiedAiMessageTimer)
+    copiedAiMessageTimer = null
   }
   if (doc.value?.file_type === 'pdf') {
     if (lastPDFProgress > 0) {
@@ -1050,6 +1074,18 @@ onBeforeUnmount(() => {
           <p class="hint">询问文档问题、搜索互联网或生成总结</p>
         </div>
         <div v-for="(msg, index) in messages" :key="index" :class="['ai-panel-msg', `ai-panel-msg--${msg.role}`]">
+          <button
+            v-if="msg.role === 'assistant' && msg.content.trim()"
+            type="button"
+            class="ai-panel-msg__copy"
+            :title="copiedAiMessageIndex === index ? '已复制' : '复制回复'"
+            :aria-label="copiedAiMessageIndex === index ? '已复制 AI 回复' : '复制 AI 回复'"
+            @click="copyAiMessage(msg.content, index)"
+          >
+            <CheckCircle2 v-if="copiedAiMessageIndex === index" :size="13" />
+            <Clipboard v-else :size="13" />
+            <span>{{ copiedAiMessageIndex === index ? '已复制' : '复制' }}</span>
+          </button>
           <div class="ai-panel-msg__content">{{ msg.content }}</div>
         </div>
         <div v-if="aiStore.loading" class="ai-panel-loading">
@@ -1407,6 +1443,7 @@ onBeforeUnmount(() => {
   margin-top: 0.25rem;
 }
 .ai-panel-msg {
+  position: relative;
   padding: 0.5rem 0.6rem;
   border-radius: 8px;
   margin-bottom: 0.4rem;
@@ -1424,6 +1461,36 @@ onBeforeUnmount(() => {
   background: var(--bg-page);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
+}
+.ai-panel-msg--assistant .ai-panel-msg__content {
+  padding-right: 4.5rem;
+}
+.ai-panel-msg__copy {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  min-height: 24px;
+  padding: 0 0.42rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(250, 248, 245, 0.92);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.66rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.ai-panel-msg__copy:hover {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+.ai-panel-msg__copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .ai-panel-msg__content {
   white-space: pre-wrap;
